@@ -179,8 +179,8 @@ describe('SyncManager rich action cards rendering and interaction', () => {
                     url: 'http://localhost:5173/dash',
                     actions: [
                         {
-                            label: 'Run E2E',
-                            command: 'pnpm test:e2e\r',
+                            label: 'Run Tests',
+                            command: 'pnpm test\r',
                             style: 'primary',
                         },
                         {
@@ -227,7 +227,7 @@ describe('SyncManager rich action cards rendering and interaction', () => {
         // Check Action buttons
         const actionBtns = card?.querySelectorAll('.sync-action-cmd-btn');
         expect(actionBtns).toHaveLength(2);
-        expect(actionBtns?.[0].textContent).toBe('Run E2E');
+        expect(actionBtns?.[0].textContent).toBe('Run Tests');
         expect(actionBtns?.[0].classList.contains('style-primary')).toBe(true);
         expect(actionBtns?.[1].textContent).toBe('Stage Git');
     });

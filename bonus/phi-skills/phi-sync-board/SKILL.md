@@ -83,7 +83,7 @@ curl -s -X POST "$PHI_COORDINATOR/api/sync/messages" -H "Content-Type: applicati
       "preview": "screenshots/login_mockup.png",
       "url": "http://localhost:5173/login",
       "actions": [
-        { "label": "Run E2E Tests", "command": "pnpm test:e2e\r", "style": "primary" },
+        { "label": "Run Tests", "command": "pnpm test\r", "style": "primary" },
         { "label": "Git Status", "command": "git status\r" }
       ],
       "toast": "Mockup ready for review!"

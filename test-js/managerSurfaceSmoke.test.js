@@ -290,8 +290,7 @@ describe('manager surface smoke', () => {
     // App prototype checks via Class.prototype (no instantiation).
     // Note: this only verifies the methods exist on the class
     // definition - instance-level state changes (e.g., showToast
-    // bound in the bootstrap) are covered by the playwright/manual
-    // smoke flow.
+    // bound in the bootstrap) require a manual smoke check.
     for (const { name, kind } of appExpectations) {
         it(`App.${name} exists (${kind})`, () => {
             if (kind === 'method') {

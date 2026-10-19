@@ -10,7 +10,6 @@ temp/
 coverage/
 .vitest/
 test-results/
-playwright-report/
 *.out
 node_modules/
 
