@@ -32,7 +32,7 @@ import {
     runtimeEnvironment,
     startFoundationStack,
     stopOwnedGroup,
-} from './phi-server.ts';
+} from './e2e/phi-server.ts';
 
 beforeEach(() => {
     fake.children.length = 0;

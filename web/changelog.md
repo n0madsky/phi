@@ -174,11 +174,11 @@ All notable changes to phi are documented here. Newest versions first.
 ## v0.21.0 — 2026-09-15
 
 ### Added
-- **Remote keyboard page** (`eded28f`, `1c5595a`, `56c6318`). Standalone `input.html`: native pane picker, native text input, Send button, nothing else. `POST /api/terminals/:id/input` writes staged-bar-identical bytes (trimmed, bracketed-paste wrapped when long/multiline, `\r` — never `\n`) to PTY stdin without touching reader state. Locked servers get the shared auth.js sign-in dialog in-page.
+- **Remote keyboard page** (`eded28f`, `1c5595a`, `56c6318`). Standalone `input.html`: native pane picker, native text input, Send button, nothing else. `POST /api/terminals/:id/input` writes staged-bar-identical bytes (trimmed, bracketed-paste wrapped when long/multiline, `\r` — never `\n`) to PTY stdin without touching reader state. Locked servers get the shared auth.js sign-in dialog in-page; the locked-login flow is pinned end to end in Playwright.
 - **Browser mobile flag forces fast-mode** (`cad8da5`). `navigator.userAgentData.mobile` is a third OR-input to `applyFastMode`, so massive tablets that are geometrically indistinguishable from desktops still get the mobile scrollback lane and cheap effects. Unsupported browsers fall back to the geometry/config logic.
 - **Hostname override** (`dd065fd`). `hostname_override` setting renames the server identity everywhere sockets, config payloads, status dumps, and push titles report it, without touching DNS.
 - **Portrait-tall Sessions drawer** (`a9f8323`). Tall portrait windows (height/width ≥ 1.1) dock Sessions into a drawer like narrow ones do, so the terminal keeps a usable grid.
-- **Lazy preview vendor bundles** (`7309b53`). Viewer.js, Plyr, and json-viewer load on first preview open instead of every page load (one cached inject per bundle); PDF.js was already on-demand.
+- **Lazy preview vendor bundles** (`7309b53`). Viewer.js, Plyr, and json-viewer load on first preview open instead of every page load (one cached inject per bundle); PDF.js was already on-demand. A Playwright spec pins zero eager fetches and single fetch on reopen.
 
 ### Fixed
 - **Quick-commands paste accepts what copy produces** (`2e49f97`). The cmds split taught the server three prefixes but the client's paste gate still demanded legacy `PHICMDS:`; `_doImportConfig` now takes the server's full prefix set.

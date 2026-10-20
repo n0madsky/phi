@@ -10,6 +10,7 @@ export default defineConfig({
             'packages/phi-core/test/**/*.test.ts',
             'packages/web-react/test/**/*.test.{ts,tsx}',
         ],
+        exclude: ['e2e/**', 'packages/*/test/e2e/**', 'node_modules/**'],
 
         // Default to a plain Node environment (fast, no DOM). Pure helpers do
         // not need a DOM. For a file that exercises document/window, add a

@@ -4,7 +4,7 @@
  * hosts an in-flow `<div id="desktop-auth-modal" hidden>` for the
  * password prompt that the server requires on protected profiles. This
  * file pins the renderer's behavior end-to-end against a recording-fake
- * preload bridge — no Electron or user-driven launch:
+ * preload bridge — no Electron, no Playwright, no user-driven launch:
  *
  *   - The page is parsed with jsdom (the generated `web/index.html`).
  *   - `window.electron` is replaced with a recording-fake bridge whose

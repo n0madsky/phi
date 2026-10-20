@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = fileURLToPath(new URL('../../../', import.meta.url));
+const root = fileURLToPath(new URL('../../../../', import.meta.url));
 const pause = (milliseconds: number) =>
     new Promise<void>((done) => setTimeout(done, milliseconds));
 

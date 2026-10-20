@@ -10,5 +10,6 @@
         "vite.config.js",
         "test/**/*.ts",
         "test/**/*.tsx"
-    ]
+    ],
+    "exclude": ["test/e2e/**"]
 }

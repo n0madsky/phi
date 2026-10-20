@@ -1,0 +1,102 @@
+import { expect, test } from '@playwright/test';
+import { startPhi, type PhiServer } from './_server.js';
+
+const HASH = '1234567890abcdef1234567890abcdef12345678';
+const RAW_DIFF = `diff --git a/commit.txt b/commit.txt
+index 4458ac6..98043d1 100644
+--- a/commit.txt
++++ b/commit.txt
+@@ -1 +1 @@
+-old content
++requested commit content
+`;
+let phi: PhiServer;
+
+test.beforeAll(async () => {
+    phi = await startPhi();
+});
+test.afterAll(async () => {
+    await phi.stop();
+});
+
+test('a show-commit card selects an older hash and opens that hash in the pretty viewer', async ({
+    page,
+}) => {
+    await page.setViewportSize({ width: 1400, height: 850 });
+    await page.route('**/api/proxy?*', (route) =>
+        route.fulfill({
+            json: [
+                {
+                    key: 'show:commit',
+                    value: {
+                        title: 'Review this commit',
+                        diff: { commit: HASH },
+                        auto_open: true,
+                    },
+                    updated_at: new Date().toISOString(),
+                },
+            ],
+        }),
+    );
+    await page.route('**/api/git/commits?*', (route) =>
+        route.fulfill({
+            json: [{ hash: 'abcdef0', subject: 'Unrelated recent commit' }],
+        }),
+    );
+    const requested: string[] = [];
+    await page.route('**/api/git/raw-diff?*', (route) => {
+        const commit =
+            new URL(route.request().url()).searchParams.get('commit') || '';
+        requested.push(commit);
+        return route.fulfill({ contentType: 'text/plain', body: RAW_DIFF });
+    });
+    await page.goto(phi.url);
+    // The panel may start hidden; wait for initialization, then open it.
+    await page
+        .locator('#diff-term-container .xterm')
+        .first()
+        .waitFor({ state: 'attached' });
+    if (
+        await page
+            .locator('#diff-panel')
+            .evaluate((el) => el.classList.contains('hidden'))
+    ) {
+        await page.locator('#header-diff-toggle-btn').click();
+    }
+    await page.locator('.diff-tab-btn[data-tab="sync"]').click();
+    const card = page.locator('.sync-card', { hasText: 'Review this commit' });
+    await expect(card.locator('.sync-diff-btn')).toHaveCount(0);
+    const prettyButton = card.locator('.sync-pretty-diff-btn');
+    await expect(prettyButton).toHaveAccessibleName(
+        `Open Pretty Diff · ${HASH.slice(0, 12)}`,
+    );
+    const prettyBox = (await prettyButton.boundingBox())!;
+    const rowBox = (await card.locator('.sync-pretty-diff-row').boundingBox())!;
+    expect(prettyBox.width).toBeCloseTo(rowBox.width, 0);
+    expect(
+        await prettyButton.evaluate(
+            (element) => getComputedStyle(element).boxShadow,
+        ),
+    ).not.toBe('none');
+    await expect(page.locator('#diff-modal')).toBeHidden();
+    expect(requested).not.toContain(HASH);
+
+    await prettyButton.click();
+    await expect(page.locator('#diff-modal')).toBeVisible();
+    await expect(page.locator('#diff-modal-commit-select')).toHaveValue(HASH);
+    await expect.poll(() => requested.includes(HASH)).toBe(true);
+    await expect(
+        page.locator('#diff-modal .d2h-code-line-ctn', {
+            hasText: 'requested commit content',
+        }),
+    ).toBeVisible();
+    await expect(page.locator('#diff-commit-select')).toHaveValue(HASH);
+
+    // A recent-list refresh must retain the requested old/full hash.
+    await page.locator('#diff-modal-close').click();
+    const reloaded = page.waitForResponse('**/api/git/commits?*');
+    await page.locator('#refresh-diff-btn').click();
+    await reloaded;
+    await expect(page.locator('#diff-commit-select')).toHaveValue(HASH);
+    expect(requested.every((commit) => commit === HASH)).toBe(true);
+});

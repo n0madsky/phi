@@ -4,8 +4,8 @@
 
 **Date:** 2026-10-19. **State:** `in-review`, not integrated.
 
-Stage 02 implements a development-only Connection shell, two shared controls, and an isolated manual-session helper.
-The user required removal of all browser automation. Post-cleanup unit/static/build gates passed.
+Stage 02 implements a development-only Connection shell, two shared controls, and an isolated browser/manual-session fixture.
+The user requested Playwright restoration. Unit/static/build gates and all 26 React Playwright cases passed after restoration.
 Safari, VoiceOver, and manual 200% zoom checks remain pending.
 The Go frontend remains embedded, shipped, and default. This foundation does not establish feature parity.
 
@@ -19,13 +19,14 @@ The Go frontend remains embedded, shipped, and default. This foundation does not
 | Master plan | `/Users/n0mad/code/phi/plan/2026-08-24_02-52-07_frontend-migration.md` (ignored) |
 | Authorization | User supplied `EXECUTE`, then required direct execution in the same session without subagents. |
 
-No commit, integration, fetch, rebase, push, publication, or device deployment occurred.
+The user authorized the foundation commit `1acc148` and a separate reviewed Playwright restoration commit.
+No integration, fetch, rebase, push, publication, or device deployment occurred.
 Stage 03 requires its own authorization, reviewed Stage 02 integration, and the landed auth transition.
 
-The revised brief includes the user-authorized test-policy cleanup.
+The revised brief includes the user-authorized Playwright restoration.
 Root changes include workspace, dependency, test/typecheck/lint, ignore, and CI configuration.
-The cleanup removes the legacy browser-test tree and both browser-runner configurations.
-Remaining frontend CI jobs install root tooling and both new packages before their combined checks.
+All 44 legacy browser-test/configuration files match the pre-removal base byte for byte. The legacy CI job is restored.
+Unit/static CI jobs retain installation of root tooling and both new packages before their combined checks.
 New files occupy `packages/phi-core/`, `packages/web-react/`, and this document.
 Legacy/Go/desktop runtime code and root source/build TypeScript configurations remain unchanged. The index is empty.
 
@@ -53,7 +54,8 @@ Vite binds `127.0.0.1:5173` with a strict port.
 The validated `PHI_PORT` selects the loopback backend, with 7070 as the development default.
 The fixture supplies its own backend port. It never relies on a real server at 7070.
 Public proxies match only `/help.md` and `/changelog.md` and strip Authorization and Cookie headers.
-API and WebSocket proxies preserve Host/Origin. Unit tests cover these proxy settings, not a live Go upgrade.
+API and WebSocket proxies preserve Host/Origin. The React Playwright suite checks a real Go `/ws/md-events` upgrade through Vite.
+The same-origin request returns 101. A foreign-origin request returns 403.
 Automatic environment-prefix exposure is disabled. Only the upstream-origin constant enters the app.
 
 ## Component inventory
@@ -64,10 +66,10 @@ The conversion uses existing Phi patterns without importing the legacy styleshee
 
 | Component owner | Phi source/style anchors | Props and supported states | Actual consumers | Automated and visual evidence | Manual evidence |
 | --- | --- | --- | --- | --- | --- |
-| `R/src/components/ui/Button.tsx`, `button.module.css` | `web/style.css`: `.btn`, `.btn-primary`, `.btn-accent`, including later overrides. `web/index.html`: New Session and workspace action buttons. | Native button props and ref. `variant: primary \| accent`, `busy:boolean`. Defaults: primary, not busy, `type=button`. Enabled, hover, focus-visible, disabled, busy. Derived disabled/busy states take precedence. | `App` Connection navigation uses primary. `ConnectionScreen` Retry uses accent. | `test/ui/button.test.tsx`, `test/app.test.tsx`. Labels, ref, activation, disabled/busy behavior, and custom-prop omission. Browser geometry, focus visibility, and reduced motion require manual checks. | Safari keyboard, zoom, and VoiceOver pending. |
+| `R/src/components/ui/Button.tsx`, `button.module.css` | `web/style.css`: `.btn`, `.btn-primary`, `.btn-accent`, including later overrides. `web/index.html`: New Session and workspace action buttons. | Native button props and ref. `variant: primary \| accent`, `busy:boolean`. Defaults: primary, not busy, `type=button`. Enabled, hover, focus-visible, disabled, busy. Derived disabled/busy states take precedence. | `App` Connection navigation uses primary. `ConnectionScreen` Retry uses accent. | `test/ui/button.test.tsx`, `test/app.test.tsx`, `test/e2e/connection.spec.ts`. Labels, ref, activation, disabled/busy behavior, custom-prop omission, 36 px height, 13 px text, keyboard focus, and reduced motion. Chromium desktop/narrow/320 px captures are available. | Safari keyboard, zoom, and VoiceOver pending. |
 | `R/src/components/ui/StatusMessage.tsx`, `status-message.module.css` | `web/auth.js`: `showUnlockPrompt`, `.access-auth-error` construction. `web/style.css`: `.access-auth-error` and Phi status colors. | Required `kind: loading \| success \| warning \| error`, `children:ReactNode`. Stable polite atomic status container. Text plus a colored marker, no automatic focus or alert. | All five Connection presentations. | `test/ui/status-message.test.tsx`, `test/app.test.tsx`. Stable node, escaped text, no focus movement, stale results ignored. | VoiceOver announcement count and initial status pending. |
-| `R/src/App.tsx`, `app.module.css` | `web/index.html`: `.brand`. `web/style.css`: `:root`, `.app-header`, and later header overrides. | Injected `ConnectionService`. Typed `connection` selection. Semantic header, named navigation, and main landmark. | Bootstrap and mounted App tests. | Strict Mode cleanup, root-only DOM changes, landmarks, and named current-page button. Desktop/narrow appearance remains a manual check. | Safari landmarks and focus visibility pending. |
-| `R/src/screens/ConnectionScreen.tsx`, `app.module.css` | `web/style.css`: `.access-auth-dialog` geometry. `web/auth.js`: auth-card text hierarchy. This is a new nonmodal screen, not a converted login dialog. | Injected service. Loading, disabled-protection, protected, unsupported, unavailable. Explicit Retry. Cancellation and stale-result suppression. | `App`. Reuses Button and StatusMessage. | `test/http.test.ts`, `test/app.test.tsx`. Response fixtures and state transitions. Live unsupported-v2 behavior remains a manual check. | Safari reflow/zoom and VoiceOver pending. |
+| `R/src/App.tsx`, `app.module.css` | `web/index.html`: `.brand`. `web/style.css`: `:root`, `.app-header`, and later header overrides. | Injected `ConnectionService`. Typed `connection` selection. Semantic header, named navigation, and main landmark. | Bootstrap and mounted App tests. | Strict Mode cleanup, root-only DOM changes, landmarks, and named current-page button. Chromium desktop/narrow/320 px captures are available. Safari appearance remains a manual check. | Safari landmarks and focus visibility pending. |
+| `R/src/screens/ConnectionScreen.tsx`, `app.module.css` | `web/style.css`: `.access-auth-dialog` geometry. `web/auth.js`: auth-card text hierarchy. This is a new nonmodal screen, not a converted login dialog. | Injected service. Loading, disabled-protection, protected, unsupported, unavailable. Explicit Retry. Cancellation and stale-result suppression. | `App`. Reuses Button and StatusMessage. | `test/http.test.ts`, `test/app.test.tsx`. Response fixtures and state transitions. `test/e2e/connection.spec.ts` checks real unsupported-v2 behavior and mocked v2 response states. | Safari reflow/zoom and VoiceOver pending. |
 
 Tokens live in `R/src/styles/tokens.css`. The small reset and body/font rules live in `global.css`.
 The spacing scale is 4/8/12/16/24 px. Control styles remain in their component modules.
@@ -100,15 +102,15 @@ These calculations do not establish full accessibility conformance.
 | `#38bdf8` | `#141418` | 8.5763:1 | Success marker |
 
 The card outline and header separator are decorative. They do not identify an interactive target.
-Target geometry, 320 CSS px reflow, native keyboard behavior, and reduced motion require manual browser checks.
-Unit assertions do not establish layout, zoom, screen-reader, or cross-browser behavior.
+The React Playwright suite checks Chromium target geometry, 320 CSS px reflow, native keyboard behavior, and reduced motion.
+Manual Safari, 200% zoom, and VoiceOver checks remain pending. Chromium evidence does not establish cross-browser or screen-reader behavior.
 
 ## Dependency inventory
 
 Versions and licenses below come from installed package metadata and `pnpm-lock.yaml`.
-The lockfile contains new importers for both packages. Browser-runner dependencies were removed.
+The lockfile contains new importers for both packages. Playwright 1.63.0 and its catalog entry are restored.
 Other existing root/desktop resolutions remain unchanged.
-Vitest retains optional browser-provider peer metadata in the lockfile. No browser-runner package remains in the installed dependency graph.
+Both root tooling and the React package declare `@playwright/test` through the existing catalog.
 The install also refreshed Plyr's deprecation metadata. This stage neither introduces nor upgrades that legacy dependency.
 
 | Package | Version | License | Owner / lockfile role |
@@ -123,6 +125,8 @@ The install also refreshed Plyr's deprecation metadata. This stage neither intro
 | `vitest` | `5.0.1` | MIT | Both packages, existing catalog |
 | `@types/node` | `24.13.6` | MIT | Both packages' tools/tests, not core source globals |
 | `jsdom` | `30.1.1` | MIT | App mounted tests, existing catalog |
+| `@playwright/test` | `1.63.0` | Apache-2.0 | Root and app browser tests, restored catalog |
+| `playwright` / `playwright-core` | `1.63.0` | Apache-2.0 | Restored browser-runner dependencies |
 | `@vitest/coverage-v8` | `5.0.1` | MIT | Existing root coverage tool |
 | `@biomejs/biome` | `2.5.14` | MIT OR Apache-2.0 | Existing root formatter/linter |
 | `csstype` | `3.2.3` | MIT | Transitive React types |
@@ -218,53 +222,58 @@ Current terminal wire compatibility remains mandatory for its later owning stage
 
 ## Verification record
 
-The following post-cleanup commands ran from the authorized worktree. No check used a user server or auth worktree.
+The following post-restoration commands ran from the authorized worktree. No check used a user server or auth worktree.
 The local linker required command-scoped `SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"`.
 The initial baseline test failed before implementation with incompatible SDK/TAPI architecture entries.
 The final regression gates passed with the compatible SDK selection. No source or global toolchain configuration changed for that correction.
 
 | Final command | Exit | Result |
 | --- | --- | --- |
-| `pnpm typecheck` | 0 | Legacy source and four package source/test compiler passes. |
+| `pnpm typecheck` | 0 | Legacy source/E2E and five package source/test compiler passes. |
 | `pnpm test` | 0 | 202 files passed, 1 skipped. 2,572 tests passed, 2 skipped. Package subset: 9 files, 77 tests. |
 | `pnpm lint:web` | 0 | Legacy stylesheet check |
 | `pnpm check:code` | 0 | Existing and new included code |
 | `pnpm check:vendors` | 0 | Existing vendored bytes unchanged |
 | `pnpm build:web` | 0 | Legacy TypeScript emission |
 | `pnpm --dir desktop/pet build` | 0 | Required pet build, after web build |
+| `pnpm exec playwright test --config packages/web-react/playwright.config.ts` | 0 | 26 Chromium cases, desktop and narrow, 37.0 seconds including cleanup |
+| `pnpm exec playwright test --list` | 0 | Legacy discovery: 86 cases in 39 files. No legacy cases executed. |
 | `git diff --check` | 0 | No whitespace errors |
 
-Current cleanup logs remain in ignored `test-results/web-react/cleanup/`, including `results.log` with every exit code.
-Earlier implementation/review logs are historical evidence, not current browser acceptance evidence.
-Deliberate core-test and React-TSX-test errors each caused TS2322 and a failed root typecheck before cleanup.
-All probes are absent from the final source. The retained compiler scopes still cover these test trees.
+Current logs remain in ignored `test-results/web-react/restore/`, with per-command logs and `results.log` for the six W commands after typecheck.
+`typecheck.log`, `browser.log`, and `legacy-discovery.log` record the other passing commands above.
+Earlier implementation/review/cleanup logs are historical evidence, not the current acceptance run.
+Deliberate core-test, React-TSX-test, and package-E2E errors failed root typecheck before removal. All probes are absent.
+The restored compiler scopes cover all three test trees.
 
-The active cleanup probe checked eight source/config/test files. Only the manual-session helper had primary findings.
-The five errors concern `ChildProcess.once` and inferred callback parameters in `test/phi-server.ts`.
+The active restoration probe checked six changed React source/config/test files. Only the isolated server helper had primary findings.
+The five errors concern `ChildProcess.once` and inferred callback parameters in `test/e2e/phi-server.ts`.
 Editor definition lookup resolves cached Node types 26.6.5 instead of the workspace's pinned 24.13.6.
-The React test compiler pass includes the relocated helper, resolves pinned workspace declarations, and passes.
+The React E2E compiler pass includes the restored helper, resolves pinned workspace declarations, and passes.
 Its resolution log is `test-results/web-react/editor-resolution.log`.
 The five findings are recorded as environment false positives. The editor declaration discrepancy remains visible.
 No source casts, suppressions, or dependency changes conceal it.
 
 Nonfatal output includes existing lint/deprecation warnings, jsdom navigation output, and macOS deployment-target linker warnings.
-All seven W commands passed after the final configuration changes. Workflow YAML parsing and the three-package frozen install also passed.
+All seven W commands and the React browser suite passed after restoration. Workflow YAML parsing and offline frozen installation also passed.
 Hosted CI did not run.
 
-A separate nine-path scan found no primary language-server errors.
-Auxiliary analyzers reported 12 existing unpinned-action errors and 24 existing policy/security warnings.
+A pre-restoration nine-path scan found no primary language-server errors.
+That scan reported 12 existing unpinned-action errors and 24 existing policy/security warnings through auxiliary analyzers.
 These concern unchanged action tags, workflow credentials/permissions, and package-manager policy.
-This cleanup does not change those policies or suppress their findings. Separate hardening remains outside its scope.
+This restoration does not change those policies or suppress their findings. Separate hardening remains outside its scope.
 
-### Retained manual-session helper
+### Restored browser fixture and manual-session helper
 
-`test/phi-server.ts` starts the isolated stack for manual comparisons. It does not automate a browser.
+`test/e2e/phi-server.ts` starts the isolated stack for Playwright and manual comparisons. The helper itself has no browser-framework import.
 Its unit tests cover sanitized environments, a local coordinator, coder stubs, startup failures, deadlines, and process-group cleanup.
 They also cover idempotent stop, bounded logs, escalation, Darwin zombie handling, and preservation of foreign processes.
 HTTP regression tests retain unfinished 404, 405, and 500 bodies and require actual connection closure.
 The helper stores logs and owner metadata under ignored `test-results/web-react/phi-web-react-*/`.
 Cleanup signals only recorded owned process groups and removes only fixture-owned temporary directories.
-Browser-runner reports, screenshots, and guard-specific evidence are not current acceptance evidence.
+The current 26-case browser run includes redirect/cookie guard regressions and real WebSocket Origin checks.
+Screenshots reside under `test-results/web-react/browser/`; the HTML report is under `playwright-report/web-react/`.
+The restored legacy suite was collected but not run: its inherited environment and background destinations require separate isolation review.
 
 ### Pending human checks
 
@@ -276,13 +285,13 @@ Browser-runner reports, screenshots, and guard-specific evidence are not current
 | Safari reduced motion | No nonessential button transitions | Pending |
 | macOS VoiceOver with Safari | Landmarks, button names, focus, one polite announcement per changed status | Pending |
 
-The executor did not operate Safari or VoiceOver. Unit results cannot substitute for these manual checks.
+The executor did not operate Safari or VoiceOver. Unit or Chromium results cannot substitute for these manual checks.
 The stage remains `in-review` until the required human evidence and implementation review are complete.
 
 For an isolated manual session, run this command from the worktree root:
 
 ```sh
-SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" node --experimental-strip-types packages/web-react/test/phi-server.ts --manual
+SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" node --experimental-strip-types packages/web-react/test/e2e/phi-server.ts --manual
 ```
 
 Use only the two printed fixture URLs. Stop the owned stack with Ctrl-C after the checks.

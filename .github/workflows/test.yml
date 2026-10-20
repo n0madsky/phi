@@ -189,3 +189,55 @@ jobs:
           pnpm --filter phi-desktop-electron run typecheck
           pnpm --filter phi-desktop-electron exec vitest run \
             --exclude test/smoke.test.ts
+
+  test-e2e:
+    name: Playwright Chromium E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile --filter phi-dev
+
+      - name: Build web assets
+        run: pnpm run build:web
+
+      - name: Check vendored assets
+        run: pnpm run check:vendors
+
+      - name: Install Playwright Chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: 0
+        run: pnpm exec playwright install chromium
+
+      - name: Run Playwright suite
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: 0
+        run: pnpm run test:e2e
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore

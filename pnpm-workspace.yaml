@@ -8,6 +8,7 @@ catalog:
   '@biomejs/biome': 2.5.14
   '@highlightjs/cdn-assets': 11.12.0
   '@noble/hashes': 2.4.0
+  '@playwright/test': 1.63.0
   '@types/jsdom': 30.0.0
   '@types/node': 24.13.6
   '@vitest/coverage-v8': 5.0.1

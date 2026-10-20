@@ -4,6 +4,8 @@
         "includes": [
             ".stylelintrc.js",
             "vitest.config.js",
+            "playwright.config.ts",
+            "e2e/**/*.ts",
             "npm/scripts/**/*.js",
             "web-src/**/*.ts",
             "test-js/**/*.js",
@@ -12,6 +14,7 @@
             "packages/*/src/**/*.{ts,tsx,css}",
             "packages/*/test/**/*.{ts,tsx}",
             "packages/*/vite.config.js",
+            "packages/*/playwright.config.ts",
             "!packages/*/public/fonts",
             "desktop/electron/src/**/*.ts",
             "desktop/electron/test/**/*.ts",

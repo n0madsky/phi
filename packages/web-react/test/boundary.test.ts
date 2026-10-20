@@ -31,12 +31,15 @@ it('keeps network, persistence, timing, and rendering globals inside platform ow
     }
 });
 
-it('keeps source and test compiler discovery explicit without NodeNext inheritance', () => {
+it('keeps source, unit, and browser compiler discovery explicit without NodeNext inheritance', () => {
     const source = JSON.parse(
         readFileSync(join(root, 'tsconfig.json'), 'utf8'),
     );
     const unit = JSON.parse(
         readFileSync(join(root, 'tsconfig.test.json'), 'utf8'),
+    );
+    const browser = JSON.parse(
+        readFileSync(join(root, 'tsconfig.e2e.json'), 'utf8'),
     );
     expect(source.extends).toBeUndefined();
     expect(source.compilerOptions).toMatchObject({
@@ -51,6 +54,14 @@ it('keeps source and test compiler discovery explicit without NodeNext inheritan
             'vite.config.js',
             'test/**/*.ts',
             'test/**/*.tsx',
+        ]),
+    );
+    expect(unit.exclude).toContain('test/e2e/**');
+    expect(browser.include).toEqual(
+        expect.arrayContaining([
+            'src/vite-env.d.ts',
+            'playwright.config.ts',
+            'test/e2e/**/*.ts',
         ]),
     );
 });
