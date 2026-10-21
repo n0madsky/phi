@@ -35,29 +35,35 @@ type request struct {
 }
 
 type response struct {
-	OK           bool   `json:"ok"`
-	Error        string `json:"error,omitempty"`
-	Code         int    `json:"code,omitempty"`
-	Process      string `json:"process,omitempty"`
-	Token        string `json:"token,omitempty"`
-	RequestID    string `json:"requestId,omitempty"`
-	Kind         string `json:"kind,omitempty"`
-	Text         string `json:"text,omitempty"`
-	SafeMsg      string `json:"safeMsg,omitempty"`
-	Terminate    int32  `json:"terminate,omitempty"`
-	Sent         int    `json:"sent,omitempty"`
-	Active       int    `json:"active,omitempty"`
-	Summaries    int    `json:"summaries,omitempty"`
-	Leases       int    `json:"leases,omitempty"`
-	HasPeer      bool   `json:"hasPeer,omitempty"`
-	HasState     bool   `json:"hasState,omitempty"`
-	State        int32  `json:"state,omitempty"`
-	Revision     string `json:"revision,omitempty"`
-	JournalFirst string `json:"journalFirst,omitempty"`
-	JournalLast  string `json:"journalLast,omitempty"`
-	JournalGap   bool   `json:"journalGap,omitempty"`
-	StaleDrops   int    `json:"staleDrops"`
-	Pending      int    `json:"pending"`
+	OK           bool     `json:"ok"`
+	Error        string   `json:"error,omitempty"`
+	Code         int      `json:"code,omitempty"`
+	Process      string   `json:"process,omitempty"`
+	Token        string   `json:"token,omitempty"`
+	RequestID    string   `json:"requestId,omitempty"`
+	Kind         string   `json:"kind,omitempty"`
+	Text         string   `json:"text,omitempty"`
+	SafeMsg      string   `json:"safeMsg,omitempty"`
+	Terminate    int32    `json:"terminate,omitempty"`
+	Sent         int      `json:"sent,omitempty"`
+	Active       int      `json:"active,omitempty"`
+	Summaries    int      `json:"summaries,omitempty"`
+	Leases       int      `json:"leases,omitempty"`
+	HasPeer      bool     `json:"hasPeer,omitempty"`
+	HasState     bool     `json:"hasState,omitempty"`
+	State        int32    `json:"state,omitempty"`
+	Revision     string   `json:"revision,omitempty"`
+	JournalFirst string   `json:"journalFirst,omitempty"`
+	JournalLast  string   `json:"journalLast,omitempty"`
+	JournalGap   bool     `json:"journalGap,omitempty"`
+	StaleDrops   int      `json:"staleDrops"`
+	Pending      int      `json:"pending"`
+	Generation   string   `json:"generation,omitempty"`
+	RuntimeID    string   `json:"runtimeId,omitempty"`
+	Caps         []string `json:"caps,omitempty"`
+	Session      string   `json:"session,omitempty"`
+	Leaf         string   `json:"leaf,omitempty"`
+	Model        string   `json:"model,omitempty"`
 }
 
 func fail(format string, args ...any) response {
@@ -195,6 +201,8 @@ func run() error {
 				JournalFirst: strconv.FormatUint(view.JournalFirst, 10),
 				JournalLast:  strconv.FormatUint(view.JournalLast, 10),
 				JournalGap:   view.JournalGap, StaleDrops: view.StaleDrops, Pending: view.Pending,
+				Generation: strconv.FormatUint(view.Generation, 10), RuntimeID: view.RuntimeID,
+				Caps: view.Caps, Session: view.SessionID, Leaf: view.LeafID, Model: view.Model,
 			})
 		case "shutdown":
 			_ = enc.Encode(response{OK: true})

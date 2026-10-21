@@ -35,17 +35,24 @@ type lease struct {
 	processID string
 	token     [tokenBytes]byte
 
-	mu         sync.Mutex
-	state      leaseState
-	maxGen     uint64 // highest accepted runtime generation
-	runtimeID  string // identity bound at maxGen
-	sessionID  string // identity bound at maxGen
-	nextReqID  uint64 // Phi-issued command IDs, monotonic, never reset
-	jrn        journal
-	lastState  *pibridgepb.StateSnapshot
-	peer       *peer // current active stream, replaced atomically
-	pending    map[uint64]*pendingReq
-	staleDrops int
+	mu        sync.Mutex
+	state     leaseState
+	maxGen    uint64   // highest accepted runtime generation
+	runtimeID string   // identity bound at maxGen
+	sessionID string   // identity bound at maxGen
+	caps      []string // accepted capabilities at maxGen, retained
+
+	nextReqID uint64 // Phi-issued command IDs, monotonic, never reset
+	jrn       journal
+	lastState *pibridgepb.StateSnapshot
+	peer      *peer // current active stream, replaced atomically
+	pending   map[uint64]*pendingReq
+	// recent retains bounded terminal outcomes so an Await that loses
+	// the race with a fast peer still reports the outcome, not a
+	// phantom revocation. recentOrder evicts oldest-first.
+	recent      map[uint64]*commandOutcome
+	recentOrder []uint64
+	staleDrops  int
 }
 
 // pendingReq is one admitted command awaiting terminal evidence.
@@ -132,6 +139,7 @@ func (r *registry) registerPending(paneID string) (*lease, error) {
 		state:     leasePending,
 		nextReqID: 1,
 		pending:   map[uint64]*pendingReq{},
+		recent:    map[uint64]*commandOutcome{},
 	}
 	r.byProcess[process] = l
 	r.byPane[paneID] = l
@@ -180,6 +188,8 @@ func (r *registry) revokeWithCount(processID string) int {
 	l.peer = nil
 	pending := l.pending
 	l.pending = map[uint64]*pendingReq{}
+	l.recent = map[uint64]*commandOutcome{}
+	l.recentOrder = nil
 	l.mu.Unlock()
 
 	for id, pend := range pending {

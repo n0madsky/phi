@@ -1163,6 +1163,10 @@ export class TabManager {
                         ? ['', null, openCodePaneMode(t.opencode_mode)]
                         : []),
                 );
+                if (t.pi_bridge !== undefined) {
+                    const tab = this.tabs.get(t.id);
+                    if (tab) tab.piBridge = t.pi_bridge;
+                }
             }
             // Apply the user's drag-reorder (if any) from localStorage. Stale
             // paneIds (closed tabs, or IDs that changed during a session
@@ -7350,6 +7354,16 @@ export class TabManager {
         if (!control) return;
         if (control.type === 'session-title') {
             this._acceptPiSessionTitle(tabInfo, control, socket);
+        } else if (control.type === 'pi-bridge-state') {
+            this._acceptPiBridgeState(tabInfo, control);
+            // Bridge pushes flip the Summarize control (running,
+            // capability); refresh the active row so it never lags.
+            if (tabInfo?.paneId === this.activePaneId)
+                this.renderPresets(tabInfo.coder);
+        } else if (control.type === 'pi-bridge-settled') {
+            this._acceptPiBridgeSettled(tabInfo, control);
+            if (tabInfo?.paneId === this.activePaneId)
+                this.renderPresets(tabInfo.coder);
         } else if (control.type === 'pty-exited') {
             tabInfo.exitCode = control.code;
             tabInfo.isDead = true;
@@ -7390,6 +7404,237 @@ export class TabManager {
             if (this.app.syncManager?.onSyncChanged) {
                 this.app.syncManager.onSyncChanged(control);
             }
+        }
+    }
+
+    // _acceptPiBridgeState records the per-pane bridge view. The first
+    // sight of a retained run establishes a silent baseline (a new browser
+    // never bells for history); only a newer run after a baseline rings a
+    // catch-up bell. Aborted runs never ring.
+    _acceptPiBridgeState(tabInfo, control) {
+        if (!tabInfo || tabInfo.coder !== 'pi') return;
+        tabInfo.piBridge = {
+            state: control.state || 'plain',
+            ...(control.reason ? { reason: control.reason } : {}),
+            ...(control.last_run ? { last_run: control.last_run } : {}),
+            ...(control.last_outcome
+                ? { last_outcome: control.last_outcome }
+                : {}),
+            ...(control.running === 'true'
+                ? { running: true }
+                : control.running === 'false'
+                  ? { running: false }
+                  : {}),
+            ...(control.model ? { model: control.model } : {}),
+            ...(control.capabilities
+                ? {
+                      capabilities: control.capabilities
+                          .split(',')
+                          .filter(Boolean),
+                  }
+                : {}),
+        };
+        if (
+            control.last_run &&
+            this._piBridgeRunIsNew(tabInfo, control.last_run)
+        ) {
+            const hadBaseline = this._piBridgeHasBaseline(tabInfo);
+            tabInfo._piBridgeLastRun = control.last_run;
+            if (hadBaseline && control.last_outcome !== 'aborted') {
+                this._ringPiBridgeBell(tabInfo);
+            }
+        }
+    }
+
+    // _acceptPiBridgeSettled rings one bell per observed run. Duplicates
+    // and aborted runs update the high-water mark without ringing.
+    _acceptPiBridgeSettled(tabInfo, control) {
+        if (!tabInfo || tabInfo.coder !== 'pi') return;
+        if (!control.run) return;
+        if (!this._piBridgeRunIsNew(tabInfo, control.run)) return;
+        tabInfo._piBridgeLastRun = control.run;
+        // A settlement ends the run, whatever the outcome.
+        if (tabInfo.piBridge) tabInfo.piBridge.running = false;
+        if (control.outcome === 'aborted') return;
+        this._ringPiBridgeBell(tabInfo);
+    }
+
+    // Runs are u64 decimal strings; compare numerically, defensively.
+    _piBridgeRunIsNew(tabInfo, run) {
+        if (typeof run !== 'string' || !/^\d+$/.test(run)) return false;
+        const seen = tabInfo._piBridgeLastRun;
+        if (typeof seen !== 'string' || !/^\d+$/.test(seen)) return true;
+        try {
+            return BigInt(run) > BigInt(seen);
+        } catch (_e) {
+            return run !== seen;
+        }
+    }
+
+    // _piBridgeHasBaseline reports whether this tab has observed bridge
+    // run state before (a high-water mark exists). First sight is always
+    // a silent baseline, never a catch-up bell.
+    _piBridgeHasBaseline(tabInfo) {
+        const seen = tabInfo._piBridgeLastRun;
+        return typeof seen === 'string' && /^\d+$/.test(seen);
+    }
+
+    // _ringPiBridgeBell marks a settled run done and, for background or
+    // hidden tabs only, raises attention exactly like the heuristic path
+    // (toast, chime, OS notification). An active visible tab shows the
+    // completion live, so it clears task state without a bell.
+    _ringPiBridgeBell(tabInfo) {
+        tabInfo.userTaskActive = false;
+        tabInfo.busyStartTime = null;
+        const isActiveAndVisible =
+            tabInfo.paneId === this.activePaneId && !document.hidden;
+        if (isActiveAndVisible) {
+            this.updateDocumentTitle();
+            return;
+        }
+        tabInfo.isAttention = true;
+        tabInfo.tabEl?.classList.add('has-attention');
+        this.updateDocumentTitle();
+        this.triggerAttentionNotification(tabInfo, false);
+    }
+
+    // _piSummaryButton builds the Pi preset-row summary control. While
+    // a summary runs, the same control cancels it. Disabled states name
+    // a concise reason; the API rechecks everything regardless.
+    _piSummaryButton(activeTab) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'preset-btn pi-summary-btn';
+        const paneId = activeTab?.paneId;
+        if (paneId && this._piSummaryPending?.has(paneId)) {
+            button.textContent = 'Cancel summary';
+            button.title = 'Cancel the running summary';
+            button.addEventListener('click', (event) => {
+                event.stopPropagation();
+                this._piSummaryAbort?.get(paneId)?.abort();
+            });
+            return button;
+        }
+        button.textContent = 'Summarize';
+        const bridge = activeTab?.piBridge;
+        let reason = '';
+        if (bridge?.state !== 'managed') {
+            reason =
+                bridge?.state === 'unavailable' && bridge?.reason
+                    ? bridge.reason
+                    : 'Bridge unavailable — restart the tab to manage it';
+        } else if (!(bridge.capabilities || []).includes('pi.summary.v1')) {
+            reason = 'Summary not supported by this Pi version';
+        } else if (bridge.running === true || activeTab?.userTaskActive === true) {
+            reason = 'Agent is busy';
+        }
+        if (reason) {
+            button.disabled = true;
+            button.title = reason;
+            return button;
+        }
+        button.title = `Summarize this Pi session${bridge.model ? ` with ${bridge.model}` : ''}`;
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            if (button.disabled) return;
+            this._requestPiSummary(activeTab);
+        });
+        return button;
+    }
+
+    // _requestPiSummary confirms the paid call, then posts it. The
+    // consent names the provider model and warns about cost, like the
+    // Reset Chat confirm. Abort cancels the fetch; the server cancels
+    // the bridge command when the request context ends.
+    _requestPiSummary(activeTab) {
+        const paneId = activeTab?.paneId;
+        if (!paneId) return;
+        const model = activeTab?.piBridge?.model || 'the current model';
+        if (
+            !confirm(
+                `Summarize this Pi session with ${model}? This sends the session transcript to the provider and may incur cost. Continue?`,
+            )
+        )
+            return;
+        if (!this._piSummaryPending) this._piSummaryPending = new Set();
+        if (!this._piSummaryAbort) this._piSummaryAbort = new Map();
+        const controller = new AbortController();
+        this._piSummaryPending.add(paneId);
+        this._piSummaryAbort.set(paneId, controller);
+        this.renderPresets('pi');
+        fetch(`/api/terminals/${encodeURIComponent(paneId)}/pi/summary`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirm: true }),
+            signal: controller.signal,
+        })
+            .then(async (response) => {
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok)
+                    throw new Error(
+                        data.message || `Summary failed (${response.status})`,
+                    );
+                return data;
+            })
+            .then((data) => {
+                this._onPiSummaryResult(paneId, data);
+            })
+            .catch((error) => {
+                if (error?.name === 'AbortError') return;
+                if (this.tabs.has(paneId))
+                    this._piSummaryError(error);
+            })
+            .finally(() => {
+                this._piSummaryPending.delete(paneId);
+                this._piSummaryAbort.delete(paneId);
+                if (this.getActiveTab()?.paneId === paneId)
+                    this.renderPresets('pi');
+            });
+    }
+
+    // _onPiSummaryResult shows the summary in the existing Markdown
+    // modal as restricted content. An inactive tab gets a toast with a
+    // View action instead of a modal ambush.
+    _onPiSummaryResult(paneId, data) {
+        const manager = this.app?.markdownManager;
+        if (!manager || typeof data?.text !== 'string') return;
+        const tabInfo = this.tabs.get(paneId);
+        const title = `Summary — ${tabInfo?.title || paneId}`;
+        if (paneId === this.activePaneId && !document.hidden) {
+            manager.openRawMarkdown(title, data.text, { restricted: true });
+            return;
+        }
+        if (!this._piLastSummary) this._piLastSummary = new Map();
+        this._piLastSummary.set(paneId, { title, text: data.text });
+        if (this.app && typeof this.app.showToast === 'function') {
+            this.app.showToast(`Summary ready for "${tabInfo?.title || paneId}".`, {
+                title: 'Pi Summary',
+                type: 'info',
+                duration: 8000,
+                action: {
+                    text: 'View summary',
+                    callback: () => {
+                        const last = this._piLastSummary?.get(paneId);
+                        if (last)
+                            manager.openRawMarkdown(last.title, last.text, {
+                                restricted: true,
+                            });
+                    },
+                },
+            });
+        }
+    }
+
+    // _piSummaryError reports a failed summary once, without retries.
+    _piSummaryError(error) {
+        const message = error?.message || 'Summary failed';
+        if (this.app && typeof this.app.showToast === 'function') {
+            this.app.showToast(`Summary failed: ${message}`, {
+                type: 'error',
+                title: 'Pi Summary',
+            });
+        } else {
+            console.error('[Pi Summary]', message);
         }
     }
 
@@ -7694,6 +7939,9 @@ export class TabManager {
                 if (tabInfo.coder === 'opencode') {
                     tabInfo.opencodeMode = openCodePaneMode(data.opencode_mode);
                 }
+                // A restart provisions a fresh lease; drop bridge state.
+                tabInfo.piBridge = data.pi_bridge;
+                tabInfo._piBridgeLastRun = undefined;
 
                 // Update DOM element references to synchronise new IDs
                 tabInfo.tabEl.setAttribute('data-pane-id', data.pane_id);
@@ -8938,6 +9186,9 @@ export class TabManager {
                 this.sendStagedInput();
             });
             this.presetsContainer.appendChild(chip);
+            this.presetsContainer.appendChild(
+                this._piSummaryButton(activeTab),
+            );
         }
 
         // 3. Render QuickCmds trigger button
@@ -10062,8 +10313,17 @@ export class TabManager {
                         isShell(tab.coder) ||
                         tab.coder === 'bash' ||
                         tab.coder === 'pwsh';
+                    // Bridge-provisioned Pi panes (managed or unavailable)
+                    // ring only on explicit settlements, never heuristically.
+                    const isBridgeProvisioned =
+                        tab.piBridge?.state === 'managed' ||
+                        tab.piBridge?.state === 'unavailable';
 
-                    if (!isActiveAndVisible && !isShellTab) {
+                    if (
+                        !isActiveAndVisible &&
+                        !isShellTab &&
+                        !isBridgeProvisioned
+                    ) {
                         const taskWasRunning =
                             tab.userTaskActive === true ||
                             (tab.userTaskActive === undefined && isLongTask);

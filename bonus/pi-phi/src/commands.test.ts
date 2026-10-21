@@ -43,4 +43,39 @@ describe('CommandTracker', () => {
         t.complete(3n);
         expect(t.noteCancel(3n)).toBe(false);
     });
+    it('aborts the registered controller on cancel', () => {
+        const t = new CommandTracker();
+        t.noteSummarize(1n);
+        const controller = new AbortController();
+        expect(t.setController(1n, controller)).toBe(true);
+        expect(t.noteCancel(1n, 'host')).toBe(true);
+        expect(controller.signal.aborted).toBe(true);
+        expect(t.phiCancelled(1n)).toBe(false);
+    });
+    it('records bridge cancels for acknowledgment', () => {
+        const t = new CommandTracker();
+        t.noteSummarize(1n);
+        expect(t.noteCancel(1n, 'phi')).toBe(true);
+        expect(t.phiCancelled(1n)).toBe(true);
+        expect(t.phiCancelled(2n)).toBe(false);
+    });
+    it('aborts immediately when already cancelled', () => {
+        const t = new CommandTracker();
+        t.noteSummarize(1n);
+        t.noteCancel(1n);
+        const controller = new AbortController();
+        expect(t.setController(1n, controller)).toBe(false);
+        expect(controller.signal.aborted).toBe(true);
+        expect(t.setController(2n, new AbortController())).toBe(false);
+    });
+    it('reset aborts pending work but keeps the mark', () => {
+        const t = new CommandTracker();
+        t.noteSummarize(1n);
+        const controller = new AbortController();
+        t.setController(1n, controller);
+        t.resetRuntime();
+        expect(controller.signal.aborted).toBe(true);
+        expect(t.pendingCount).toBe(0);
+        expect(t.highWaterMark).toBe(1n);
+    });
 });

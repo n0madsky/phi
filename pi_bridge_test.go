@@ -1,0 +1,316 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"net"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+
+	pibridgepb "github.com/hypernewbie/phi/internal/pibridge/pb"
+	"github.com/hypernewbie/phi/pkg/pty"
+	"github.com/hypernewbie/phi/pkg/ws"
+)
+
+func testBridgeHub() *ws.Hub {
+	return ws.NewHub(0)
+}
+
+func TestBridgeStartStopCleansOwnedPaths(t *testing.T) {
+	b := startPiBridge(testBridgeHub())
+	if b == nil {
+		t.Fatal("bridge did not start")
+	}
+	info, err := os.Stat(b.artifact)
+	if err != nil {
+		t.Fatalf("artifact not materialized: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("artifact mode %o, want 0600", info.Mode().Perm())
+	}
+	socket := strings.TrimPrefix(b.endpoint.Target, "unix:")
+	artifact := b.artifact
+	b.Stop()
+	if _, err := os.Stat(socket); !os.IsNotExist(err) {
+		t.Fatalf("socket survives stop: %v", err)
+	}
+	if _, err := os.Stat(artifact); !os.IsNotExist(err) {
+		t.Fatalf("artifact survives stop: %v", err)
+	}
+	b.Stop() // idempotent
+}
+
+func TestBridgeProvisionCompleteRevoke(t *testing.T) {
+	b := startPiBridge(testBridgeHub())
+	if b == nil {
+		t.Fatal("bridge did not start")
+	}
+	defer b.Stop()
+
+	env, args, managed := b.Provision("pane-1")
+	if !managed {
+		t.Fatal("provision not managed")
+	}
+	for _, key := range []string{piBridgeEnvTarget, piBridgeEnvPane, piBridgeEnvProcess, piBridgeEnvToken} {
+		if env[key] == "" {
+			t.Fatalf("env %s empty", key)
+		}
+	}
+	if len(args) != 2 || args[0] != "--extension" || args[1] != b.artifact {
+		t.Fatalf("extension args %v", args)
+	}
+	if len(env[piBridgeEnvToken]) != 64 {
+		t.Fatalf("token len %d, want 64 hex", len(env[piBridgeEnvToken]))
+	}
+
+	// Second provision of the same pane is unmanaged and preserves
+	// the live record: no new lease, no clobbered state, and the
+	// first lease keeps its revoke path.
+	_, _, managed = b.Provision("pane-1")
+	if managed {
+		t.Fatal("double provision managed")
+	}
+	if got := b.PaneSnapshot("pane-1"); got.State != piBridgeManaged {
+		t.Fatalf("double provision state %+v, want managed", got)
+	}
+	if _, ok := b.server.PaneState(env[piBridgeEnvProcess]); !ok {
+		t.Fatal("double provision orphaned the live lease")
+	}
+
+	b.Complete("pane-1")
+	b.RevokePane("pane-1")
+	if got := b.PaneSnapshot("pane-1"); got.State != piBridgePlain {
+		t.Fatalf("revoked snapshot %+v, want plain", got)
+	}
+	b.RevokePane("pane-1") // idempotent
+	b.Complete("unknown")  // ignored
+	if got := b.PaneSnapshot("unknown"); got.State != piBridgePlain {
+		t.Fatalf("unknown snapshot %+v, want plain", got)
+	}
+}
+
+// TestBridgeMissingArtifactProvisionsUnavailable covers a bridge whose
+// runtime failed to materialize (corrupt embed, unwritable dir): every
+// pane launches unmanaged with a safe reason, never with extension args.
+func TestBridgeMissingArtifactProvisionsUnavailable(t *testing.T) {
+	b := startPiBridge(testBridgeHub())
+	if b == nil {
+		t.Fatal("bridge did not start")
+	}
+	defer b.Stop()
+	b.artifact = "" // simulate materialize failure after startup
+	b.reason = "runtime unavailable"
+	env, args, managed := b.Provision("pane-1")
+	if managed || env != nil || args != nil {
+		t.Fatalf("missing artifact provisioned: managed=%v env=%v args=%v", managed, env, args)
+	}
+	if got := b.PaneSnapshot("pane-1"); got.State != piBridgeUnavailable || got.Reason == "" {
+		t.Fatalf("missing artifact snapshot %+v, want unavailable with reason", got)
+	}
+	frame := b.encodeAttach(pty.PTYInstanceSnapshot{ID: "pane-1", Coder: "pi"})
+	if frame == nil || !strings.Contains(string(frame), piBridgeUnavailable) {
+		t.Fatalf("missing artifact attach %q, want unavailable state", frame)
+	}
+}
+
+func TestBridgeNilSafe(t *testing.T) {
+	var b *Bridge
+	if _, _, managed := b.Provision("pane-1"); managed {
+		t.Fatal("nil bridge provisioned")
+	}
+	b.Complete("pane-1")
+	b.RevokePane("pane-1")
+	b.Stop()
+	if got := b.PaneSnapshot("pane-1"); got.State != piBridgePlain {
+		t.Fatalf("nil snapshot %+v, want plain", got)
+	}
+	if b.encodeAttach(pty.PTYInstanceSnapshot{ID: "pane-1", Coder: "pi"}) != nil {
+		t.Fatal("nil bridge encoded attach")
+	}
+}
+
+// dialBridge opens a raw client stream against a test bridge.
+func dialBridge(t *testing.T, b *Bridge, pane, process, token string) pibridgepb.Integration_ConnectClient {
+	t.Helper()
+	socket := strings.TrimPrefix(b.endpoint.Target, "unix:")
+	conn, err := grpc.NewClient("passthrough:///unused",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return net.Dial("unix", socket)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	md := metadata.Pairs("phi-pi-pane", pane, "phi-pi-process", process, "phi-pi-token", token)
+	ctx, cancel := context.WithTimeout(metadata.NewOutgoingContext(context.Background(), md), 10*time.Second)
+	t.Cleanup(cancel)
+	stream, err := pibridgepb.NewIntegrationClient(conn).Connect(ctx)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	return stream
+}
+
+func TestBridgeSettlementNotifiesHub(t *testing.T) {
+	hub := testBridgeHub()
+	b := startPiBridge(hub)
+	if b == nil {
+		t.Fatal("bridge did not start")
+	}
+	defer b.Stop()
+
+	env, _, managed := b.Provision("pane-1")
+	if !managed {
+		t.Fatal("provision not managed")
+	}
+	b.Complete("pane-1")
+
+	client := &ws.Client{Send: make(chan []byte, 8)}
+	hub.AttachHot("pane-1", client)
+	<-client.Send // ATTACH_HEAD
+
+	stream := dialBridge(t, b, "pane-1", env[piBridgeEnvProcess], env[piBridgeEnvToken])
+	hello := &pibridgepb.PiToPhi{
+		PaneId: "pane-1", ProcessId: env[piBridgeEnvProcess], RuntimeGeneration: 1,
+		Payload: &pibridgepb.PiToPhi_Hello{Hello: &pibridgepb.Hello{
+			ProtocolVersion: 1, SessionId: "sess", RuntimeId: "rt",
+			Capabilities: []string{"pi.lifecycle.v1"},
+			CurrentState: &pibridgepb.StateSnapshot{
+				State: pibridgepb.LogicalState_LOGICAL_STATE_IDLE, SessionId: "sess",
+			},
+		}},
+	}
+	if err := stream.Send(hello); err != nil {
+		t.Fatalf("hello: %v", err)
+	}
+	if _, err := stream.Recv(); err != nil {
+		t.Fatalf("accepted: %v", err)
+	}
+	// Hello pushes a fresh bridge view before any settlement.
+	select {
+	case frame := <-client.Send:
+		var state struct {
+			Type         string `json:"type"`
+			State        string `json:"state"`
+			Running      string `json:"running"`
+			Capabilities string `json:"capabilities"`
+		}
+		if err := json.Unmarshal(frame[1:], &state); err != nil {
+			t.Fatalf("state decode: %v", err)
+		}
+		if state.Type != "pi-bridge-state" || state.State != "managed" ||
+			state.Running != "false" || state.Capabilities != "pi.lifecycle.v1" {
+			t.Fatalf("state %+v", state)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no state frame")
+	}
+	settled := &pibridgepb.PiToPhi{
+		PaneId: "pane-1", ProcessId: env[piBridgeEnvProcess], RuntimeGeneration: 1,
+		Payload: &pibridgepb.PiToPhi_AgentSettled{AgentSettled: &pibridgepb.AgentSettled{
+			EventSequence: 2, RunId: 7, Outcome: pibridgepb.RunOutcome_RUN_OUTCOME_COMPLETED,
+		}},
+	}
+	if err := stream.Send(settled); err != nil {
+		t.Fatalf("settled: %v", err)
+	}
+
+	select {
+	case frame := <-client.Send:
+		if len(frame) == 0 || frame[0] != 0x02 {
+			t.Fatalf("frame type %v, want 0x02", frame)
+		}
+		var control struct {
+			Type    string `json:"type"`
+			PaneID  string `json:"pane_id"`
+			Run     string `json:"run"`
+			Outcome string `json:"outcome"`
+		}
+		if err := json.Unmarshal(frame[1:], &control); err != nil {
+			t.Fatalf("control decode: %v", err)
+		}
+		if control.Type != "pi-bridge-settled" || control.PaneID != "pane-1" || control.Run != "7" || control.Outcome != "completed" {
+			t.Fatalf("control %+v", control)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no settlement frame")
+	}
+
+	// Duplicate edge never notifies twice.
+	if err := stream.Send(settled); err != nil {
+		t.Fatalf("duplicate settled: %v", err)
+	}
+	select {
+	case frame := <-client.Send:
+		t.Fatalf("duplicate settlement notified: %s", frame[1:])
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	if got := b.PaneSnapshot("pane-1"); got.LastRun != "7" {
+		t.Fatalf("snapshot %+v, want last_run 7", got)
+	}
+}
+
+func TestBridgeStaleSettlementDropped(t *testing.T) {
+	hub := testBridgeHub()
+	b := startPiBridge(hub)
+	if b == nil {
+		t.Fatal("bridge did not start")
+	}
+	defer b.Stop()
+
+	env, _, _ := b.Provision("pane-1")
+	client := &ws.Client{Send: make(chan []byte, 8)}
+	hub.AttachHot("pane-1", client)
+	<-client.Send
+	b.RevokePane("pane-1")
+
+	b.onSettled("pane-1", env[piBridgeEnvProcess], 3, pibridgepb.RunOutcome_RUN_OUTCOME_COMPLETED)
+	select {
+	case frame := <-client.Send:
+		t.Fatalf("stale settlement notified: %s", frame[1:])
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestBridgeAttachEncoding(t *testing.T) {
+	hub := testBridgeHub()
+	b := startPiBridge(hub)
+	if b == nil {
+		t.Fatal("bridge did not start")
+	}
+	defer b.Stop()
+
+	if got := b.encodeAttach(pty.PTYInstanceSnapshot{ID: "pane-1", Coder: "bash"}); got != nil {
+		t.Fatalf("non-pi attach encoded: %s", got)
+	}
+	if got := b.encodeAttach(pty.PTYInstanceSnapshot{ID: "unknown", Coder: "pi"}); got != nil {
+		t.Fatalf("unknown pane attach encoded: %s", got)
+	}
+	env, _, _ := b.Provision("pane-1")
+	payload := b.encodeAttach(pty.PTYInstanceSnapshot{ID: "pane-1", Coder: "pi"})
+	var view map[string]string
+	if err := json.Unmarshal(payload, &view); err != nil {
+		t.Fatalf("attach decode: %v", err)
+	}
+	if view["type"] != "pi-bridge-state" || view["state"] != piBridgeManaged {
+		t.Fatalf("attach %+v", view)
+	}
+	b.onSettled("pane-1", env[piBridgeEnvProcess], 11, pibridgepb.RunOutcome_RUN_OUTCOME_ABORTED)
+	payload = b.encodeAttach(pty.PTYInstanceSnapshot{ID: "pane-1", Coder: "pi"})
+	view = nil
+	if err := json.Unmarshal(payload, &view); err != nil {
+		t.Fatalf("attach decode: %v", err)
+	}
+	if view["last_run"] != "11" {
+		t.Fatalf("attach catch-up %+v", view)
+	}
+}

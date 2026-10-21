@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/hypernewbie/phi/internal/termstate"
+	"github.com/hypernewbie/phi/pkg/pty"
 	"github.com/hypernewbie/phi/pkg/ws/wireproto"
 )
 
@@ -122,6 +123,12 @@ type Hub struct {
 	replayBufferBytes  int
 	recordingDirectory string
 	archives           map[string]*PaneHub
+
+	// bridgeAttach encodes an optional Pi-bridge snapshot control frame
+	// for an attaching client. bridgeExit observes pane death with the
+	// exit code. Both are set once before serving; nil disables them.
+	bridgeAttach func(snapshot pty.PTYInstanceSnapshot) []byte
+	onPaneExit   func(paneID string, code int)
 }
 
 func NewHub(replayBufferBytes int) *Hub {
@@ -129,6 +136,26 @@ func NewHub(replayBufferBytes int) *Hub {
 		panes:             make(map[string]*PaneHub),
 		archives:          make(map[string]*PaneHub),
 		replayBufferBytes: replayBufferBytes,
+	}
+}
+
+// SetBridgeAttach registers the Pi-bridge attach snapshot encoder.
+// HandleWS sends one encoded frame per attach; nil payload sends nothing.
+// Set once before serving.
+func (h *Hub) SetBridgeAttach(fn func(snapshot pty.PTYInstanceSnapshot) []byte) {
+	h.bridgeAttach = fn
+}
+
+// SetOnPaneExit registers the pane-death observer fired from the PTY
+// read loop after the exit broadcast. Set once before serving.
+func (h *Hub) SetOnPaneExit(fn func(paneID string, code int)) {
+	h.onPaneExit = fn
+}
+
+// notifyPaneExit fires the registered pane-death observer, if any.
+func (h *Hub) notifyPaneExit(paneID string, code int) {
+	if h.onPaneExit != nil {
+		h.onPaneExit(paneID, code)
 	}
 }
 
@@ -836,6 +863,40 @@ func (h *Hub) Broadcast(paneID string, msgType byte, payload []byte) {
 
 	for client := range ph.clients {
 		h.deliverOrDrop(client, msg)
+	}
+}
+
+// BroadcastBridge pushes one Pi-bridge control frame (0x02) to every
+// client of a pane. Unlike Broadcast, a full client is closed instead
+// of evicting queued frames: the client reconnects and the bridge
+// attach snapshot replays the latest settlement, so a qualifying
+// observed settlement is never silently lost to congestion.
+func (h *Hub) BroadcastBridge(paneID string, payload []byte) {
+	h.mu.RLock()
+	ph, exists := h.panes[paneID]
+	h.mu.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	msg := make([]byte, len(payload)+1)
+	msg[0] = 0x02
+	copy(msg[1:], payload)
+
+	ph.mu.Lock()
+	defer ph.mu.Unlock()
+
+	for client := range ph.clients {
+		select {
+		case client.Send <- msg:
+			client.FullSince = time.Time{}
+		default:
+			client.logger().Warn("ws bridge frame blocked; closing for reconnect", "pane", paneID)
+			if client.Ws != nil {
+				_ = client.Ws.Close()
+			}
+		}
 	}
 }
 

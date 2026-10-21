@@ -14,6 +14,7 @@
     "build:pi-phi": "node scripts/pi-phi-build.mjs",
     "check:pi-phi-generated": "node scripts/pi-phi-check-generated.mjs",
     "test:pi-phi:integration": "node scripts/pi-phi-integration.mjs",
+    "test:pi-phi:hosts": "node scripts/pi-phi-hosts.mjs",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.e2e.json",
     "test": "vitest run",
     "test:watch": "vitest",

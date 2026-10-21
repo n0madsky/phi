@@ -1,2 +1,5 @@
 .tools/
-dist/
+dist/*
+!dist/pi-phi-extension.cjs
+!dist/pi-phi-entry.ts
+!dist/NOTICES.txt

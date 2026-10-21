@@ -36,6 +36,10 @@ const (
 	maxSummaryPerPane = 1
 	// maxSummaryServer bounds concurrent summaries across the Phi server.
 	maxSummaryServer = 2
+	// maxRecentOutcomes bounds retained terminal outcomes per lease so
+	// an Await that loses the race with a fast peer still reports the
+	// outcome instead of a phantom revocation.
+	maxRecentOutcomes = 8
 	// shutdownDrainTimeout bounds gRPC drain before force-stop.
 	shutdownDrainTimeout = 5 * time.Second
 

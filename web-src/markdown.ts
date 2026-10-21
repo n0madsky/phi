@@ -6,6 +6,7 @@ import {
     renderMarkdownSafe,
     rewriteRelativeImages,
     highlightCodeIn,
+    stripActiveContent,
 } from './md-render.js';
 import { normalizePath } from './sessions.js';
 import { formatAttachment, type Attachment } from './attachments.js';
@@ -733,7 +734,11 @@ export class MarkdownManager {
         }
     }
 
-    openRawMarkdown(title: string, rawMarkdown: string): void {
+    openRawMarkdown(
+        title: string,
+        rawMarkdown: string,
+        options?: { restricted?: boolean },
+    ): void {
         this.modalTitle.innerText = title;
         this.currentRawContent = rawMarkdown;
         this._currentModalContext = {
@@ -744,6 +749,7 @@ export class MarkdownManager {
         const html = renderMarkdownSafe(rawMarkdown);
         this.modalBody.innerHTML = `<div class="md-rendered">${html}</div>`;
         highlightCodeIn(this.modalBody);
+        if (options?.restricted === true) stripActiveContent(this.modalBody);
         this.modal.classList.remove('hidden');
     }
 

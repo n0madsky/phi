@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 	"time"
 
@@ -27,6 +28,8 @@ type Server struct {
 	mu              sync.Mutex
 	activeSummaries int
 	grpcServer      *grpc.Server
+	onSettled       func(paneID, processID string, runID uint64, outcome pibridgepb.RunOutcome)
+	onState         func(paneID, processID string, running bool, model string, caps []string)
 }
 
 // NewServer creates a bridge server with bounded gRPC limits and no TCP
@@ -45,6 +48,49 @@ func NewServer() *Server {
 // GRPCServer exposes the configured gRPC server for Serve.
 func (s *Server) GRPCServer() *grpc.Server {
 	return s.grpcServer
+}
+
+// SetOnSettled registers the callback fired once for each freshly appended
+// settlement edge (duplicates and out-of-order edges never fire). Set before
+// serving; the callback runs on a stream goroutine, must return quickly,
+// and must not call back into the Server.
+func (s *Server) SetOnSettled(fn func(paneID, processID string, runID uint64, outcome pibridgepb.RunOutcome)) {
+	s.onSettled = fn
+}
+
+// SetOnState registers the callback fired after each accepted snapshot
+// (hello or state) updates the stored lease state. Same contract as
+// SetOnSettled; the callback receives copies, never shared slices.
+func (s *Server) SetOnState(fn func(paneID, processID string, running bool, model string, caps []string)) {
+	s.onState = fn
+}
+
+// fireState reports one accepted snapshot to the state callback. A nil
+// snapshot (hello without state) still reports capabilities. A nil caps
+// slice (state snapshot) keeps the last negotiated set server-side; the
+// callback receives the stored set. It runs lock-free on a stream
+// goroutine and never calls back into the Server.
+func (s *Server) fireState(paneID, processID string, snap *pibridgepb.StateSnapshot, caps []string) {
+	if s.onState == nil {
+		return
+	}
+	if caps == nil {
+		l, ok := s.reg.lookupByProcess(processID)
+		if !ok {
+			return
+		}
+		l.mu.Lock()
+		stored := make([]string, len(l.caps))
+		copy(stored, l.caps)
+		l.mu.Unlock()
+		caps = stored
+	}
+	running := snap != nil && snap.GetState() == pibridgepb.LogicalState_LOGICAL_STATE_RUNNING
+	model := ""
+	if m := snap.GetModel(); m != nil {
+		model = m.GetProvider() + "/" + m.GetModel()
+	}
+	s.onState(paneID, processID, running, model, caps)
 }
 
 // Stop drains gracefully for shutdownDrainTimeout, then force-stops.
@@ -111,8 +157,10 @@ func (s *Server) Stats() (activeStreams, activeSummaries, leases int) {
 	return activeStreams, activeSummaries, leases
 }
 
-// StateView is the nonsecret lease inspection surface for tests.
-// It carries no tokens, process nonces beyond the lookup key, or payloads.
+// StateView is the nonsecret lease inspection surface for the host and
+// tests. It carries no tokens, process nonces beyond the lookup key, or
+// payloads. Session, leaf, model, capability, and runtime identities are
+// the same values published to browsers and logs.
 type StateView struct {
 	HasPeer      bool
 	HasState     bool
@@ -123,32 +171,59 @@ type StateView struct {
 	JournalGap   bool
 	StaleDrops   int
 	Pending      int
+	Generation   uint64
+	RuntimeID    string
+	Caps         []string
+	SessionID    string
+	LeafID       string
+	Model        string
 }
 
-// InspectForTest returns the nonsecret lease view for one process.
-// It reports false when the process has no lease. Test-only.
-func (s *Server) InspectForTest(processID string) (StateView, bool) {
+// PaneState returns the nonsecret lease view for one process. It reports
+// false when the process has no lease.
+func (s *Server) paneStateLocked(l *lease) StateView {
+	view := StateView{
+		HasPeer:    l.peer != nil,
+		StaleDrops: l.staleDrops,
+		Pending:    len(l.pending),
+		Generation: l.maxGen,
+		RuntimeID:  l.runtimeID,
+		SessionID:  l.sessionID,
+	}
+	view.Caps = append(view.Caps, l.caps...)
+	if l.lastState != nil {
+		view.HasState = true
+		view.State = l.lastState.State
+		view.Revision = l.lastState.StateRevision
+		if l.lastState.SessionId != "" {
+			view.SessionID = l.lastState.SessionId
+		}
+		view.LeafID = l.lastState.LeafId
+		if m := l.lastState.Model; m != nil {
+			view.Model = m.Provider + "/" + m.Model
+		}
+	}
+	return view
+}
+
+func (s *Server) PaneState(processID string) (StateView, bool) {
 	l, ok := s.reg.lookupByProcess(processID)
 	if !ok {
 		return StateView{}, false
 	}
 	l.mu.Lock()
-	view := StateView{
-		HasPeer:    l.peer != nil,
-		StaleDrops: l.staleDrops,
-		Pending:    len(l.pending),
-	}
-	if l.lastState != nil {
-		view.HasState = true
-		view.State = l.lastState.State
-		view.Revision = l.lastState.StateRevision
-	}
+	view := s.paneStateLocked(l)
 	l.mu.Unlock()
 	_, gap, first, last := l.jrn.snapshot()
 	view.JournalFirst = first
 	view.JournalLast = last
 	view.JournalGap = gap
 	return view, true
+}
+
+// InspectForTest is PaneState for the interop harness.
+func (s *Server) InspectForTest(processID string) (StateView, bool) {
+	return s.PaneState(processID)
 }
 
 // FloodForTest bypasses command admission and enqueues count dummy Cancel
@@ -399,7 +474,9 @@ func (s *Server) Cancel(processID string, requestID uint64, reason pibridgepb.Ca
 
 // Await waits for the terminal outcome of one admitted request. A timeout
 // reports OutcomeTimeout without freeing the admission slot; revocation
-// reports OutcomeRevoked and frees it.
+// reports OutcomeRevoked and frees it. An ID that already completed
+// reports its retained outcome; only evicted or never-admitted IDs read
+// as revoked.
 func (s *Server) Await(processID string, requestID uint64, timeout time.Duration) (*Outcome, error) {
 	l, ok := s.reg.lookupByProcess(processID)
 	if !ok {
@@ -407,9 +484,13 @@ func (s *Server) Await(processID string, requestID uint64, timeout time.Duration
 	}
 	l.mu.Lock()
 	pend, exists := l.pending[requestID]
+	recent := l.recent[requestID]
 	l.mu.Unlock()
 	if !exists {
-		// Completed, stale, or never admitted. Callers treat unknown IDs
+		if recent != nil {
+			return toPublicOutcome(recent), nil
+		}
+		// Evicted, stale, or never admitted. Callers treat unknown IDs
 		// as revoked to avoid blocking on a freed slot.
 		return &Outcome{Kind: OutcomeRevoked, RequestID: requestID}, nil
 	}
@@ -439,6 +520,8 @@ func toPublicOutcome(out *commandOutcome) *Outcome {
 
 // deliverOutcome removes one pending request and releases its server slot.
 // It returns false when the ID is unknown or already completed (stale).
+// Completed outcomes are retained bounded so a late Await still reports
+// them; only evicted or never-admitted IDs read as revoked.
 func (s *Server) deliverOutcome(l *lease, id uint64, out *commandOutcome) bool {
 	l.mu.Lock()
 	pend, ok := l.pending[id]
@@ -448,6 +531,13 @@ func (s *Server) deliverOutcome(l *lease, id uint64, out *commandOutcome) bool {
 		return false
 	}
 	delete(l.pending, id)
+	l.recent[id] = out
+	l.recentOrder = append(l.recentOrder, id)
+	for len(l.recentOrder) > maxRecentOutcomes {
+		evict := l.recentOrder[0]
+		l.recentOrder = l.recentOrder[1:]
+		delete(l.recent, evict)
+	}
 	l.mu.Unlock()
 	s.mu.Lock()
 	s.activeSummaries--
@@ -585,6 +675,11 @@ func (s *Server) Connect(stream pibridgepb.Integration_ConnectServer) error {
 	oldPeer := l.peer
 	p := newPeer(gen, hello.GetSessionId(), caps, stream)
 	l.peer = p
+	l.caps = l.caps[:0]
+	for c := range caps {
+		l.caps = append(l.caps, c)
+	}
+	slices.Sort(l.caps)
 	l.mu.Unlock()
 
 	if oldPeer != nil {
@@ -596,6 +691,7 @@ func (s *Server) Connect(stream pibridgepb.Integration_ConnectServer) error {
 	for c := range caps {
 		acceptedCaps = append(acceptedCaps, c)
 	}
+	slices.Sort(acceptedCaps)
 	accepted := &pibridgepb.PhiToPi{
 		PaneId:            pane,
 		ProcessId:         proc,
@@ -616,6 +712,7 @@ func (s *Server) Connect(stream pibridgepb.Integration_ConnectServer) error {
 		}
 		return status.Error(codes.Unavailable, "peer closed")
 	}
+	s.fireState(pane, proc, hello.GetCurrentState(), acceptedCaps)
 
 	for {
 		msg, err := p.recv()
@@ -686,7 +783,14 @@ func (s *Server) handleMessage(l *lease, p *peer, msg *pibridgepb.PiToPhi) error
 		default:
 			return status.Error(codes.InvalidArgument, "unknown outcome")
 		}
-		l.jrn.append(ev.GetEventSequence(), ev.GetRunId(), true, ev.GetOutcome())
+		if l.jrn.append(ev.GetEventSequence(), ev.GetRunId(), true, ev.GetOutcome()) {
+			// Fresh edge only: duplicates and out-of-order arrivals never
+			// notify. No locks are held here; the callback must not call
+			// back into the Server.
+			if s.onSettled != nil {
+				s.onSettled(l.paneID, l.processID, ev.GetRunId(), ev.GetOutcome())
+			}
+		}
 		return nil
 	case msg.GetStateSnapshot() != nil:
 		snap := msg.GetStateSnapshot()
@@ -734,6 +838,7 @@ func (s *Server) handleMessage(l *lease, p *peer, msg *pibridgepb.PiToPhi) error
 				}
 			}
 		}
+		s.fireState(l.paneID, l.processID, snap, nil)
 		return nil
 	case msg.GetSummaryResult() != nil:
 		res := msg.GetSummaryResult()

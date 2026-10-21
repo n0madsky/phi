@@ -1,6 +1,6 @@
 /* Φ phi — Markdown Docs Viewer */
 import { relativeToCwd, escapeHtml } from './util.js';
-import { renderMarkdownSafe, rewriteRelativeImages, highlightCodeIn, } from './md-render.js';
+import { renderMarkdownSafe, rewriteRelativeImages, highlightCodeIn, stripActiveContent, } from './md-render.js';
 import { normalizePath } from './sessions.js';
 import { formatAttachment } from './attachments.js';
 import { tryNative } from './desktop.js';
@@ -621,7 +621,7 @@ export class MarkdownManager {
                 this.restartModalCancel.disabled = false;
         }
     }
-    openRawMarkdown(title, rawMarkdown) {
+    openRawMarkdown(title, rawMarkdown, options) {
         this.modalTitle.innerText = title;
         this.currentRawContent = rawMarkdown;
         this._currentModalContext = {
@@ -632,6 +632,8 @@ export class MarkdownManager {
         const html = renderMarkdownSafe(rawMarkdown);
         this.modalBody.innerHTML = `<div class="md-rendered">${html}</div>`;
         highlightCodeIn(this.modalBody);
+        if (options?.restricted === true)
+            stripActiveContent(this.modalBody);
         this.modal.classList.remove('hidden');
     }
     async openHelpModal() {

@@ -64,3 +64,20 @@ export function highlightCodeIn(el) {
         window.hljs.highlightElement(block);
     });
 }
+// Strips active content from already-sanitized model output: links keep
+// their text, images keep their alt text, and embedded media is
+// dropped. Summaries must not navigate, track, or autoplay.
+export function stripActiveContent(container) {
+    container.querySelectorAll('a').forEach((a) => {
+        a.replaceWith(document.createTextNode(a.textContent ?? ''));
+    });
+    container.querySelectorAll('img').forEach((img) => {
+        const alt = img.getAttribute('alt') || '';
+        img.replaceWith(document.createTextNode(alt));
+    });
+    container
+        .querySelectorAll('video,audio,source,track')
+        .forEach((el) => {
+        el.remove();
+    });
+}

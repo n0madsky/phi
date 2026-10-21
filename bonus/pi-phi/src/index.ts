@@ -27,6 +27,13 @@ export type { IpcTargetKind, ParsedTarget } from './endpoint.js';
 export { BoundedQueue } from './queue.js';
 export type { SizedMessage } from './queue.js';
 export { CommandTracker } from './commands.js';
-export type { SummarizeDisposition } from './commands.js';
+export type { CancelSource, SummarizeDisposition } from './commands.js';
+export {
+    SummaryAdapter,
+    hasSummarySurface,
+    SUMMARY_INSTRUCTIONS,
+} from './summary.js';
+export type { SummaryHelpers } from './summary.js';
+export { createExtension, createExtensionWithHelpers } from './extension.js';
 
 export const PI_PHI_PACKAGE_VERSION = '0.1.0';

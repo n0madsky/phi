@@ -38,6 +38,7 @@ var (
 	ptyManager     *pty.Manager
 	coderManager   *coders.Manager
 	wsHub          *ws.Hub
+	piBridge       *Bridge
 	mdWatcher      *fswatch.Watcher
 	piTitleService *piTerminalTitleService
 	cpuSampler     = system.NewSampler()
@@ -201,6 +202,10 @@ func main() {
 			slog.Error("terminal recording directory unavailable", "err", err)
 		}
 	}
+	// The Pi bridge serves before saved Pi tabs restore so relaunched
+	// panes provision against a live listener. A nil bridge (listener
+	// failure) leaves every launch on the unmanaged path.
+	piBridge = startPiBridge(wsHub)
 	restoreSavedTabs()
 	piTitleService = newPiTerminalTitleService(ptyManager, wsHub)
 	piTitleService.Start()
@@ -421,6 +426,7 @@ func main() {
 				envDuration("PHI_SHUTDOWN_PTY_GRACE", ptyGrace),
 				envDuration("PHI_SHUTDOWN_GRACE", httpGrace),
 			)
+			piBridge.Stop()
 			if err := obsShutdown(context.Background()); err != nil {
 				slog.Error("obs shutdown", "err", err)
 			}
