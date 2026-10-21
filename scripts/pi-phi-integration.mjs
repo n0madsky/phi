@@ -30,9 +30,26 @@ let code = run('go', ['build', '-o', bin, './internal/pibridge/testserver'], {
 });
 if (code !== 0) fail(`testserver build exited ${code}`);
 
-code = run('pnpm', ['--filter', '@phi/pi-phi', 'exec', 'vitest', 'run', '-c', 'vitest.integration.config.mts'], {
-    env: { ...process.env, PI_PHI_TESTSERVER: bin, GOCACHE: goCache, GOTMPDIR: tmp },
-});
+code = run(
+    'pnpm',
+    [
+        '--filter',
+        '@phi/pi-phi',
+        'exec',
+        'vitest',
+        'run',
+        '-c',
+        'vitest.integration.config.mts',
+    ],
+    {
+        env: {
+            ...process.env,
+            PI_PHI_TESTSERVER: bin,
+            GOCACHE: goCache,
+            GOTMPDIR: tmp,
+        },
+    },
+);
 rmSync(tmp, { recursive: true, force: true });
 if (code !== 0) fail(`integration suite exited ${code}`);
 console.log('pi-phi-integration: pass');

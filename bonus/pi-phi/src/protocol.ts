@@ -61,8 +61,10 @@ export function idToString(id: bigint): string {
 
 /** Parse a decimal uint64 ID. Rejects empty, negative, and out-of-range input. */
 export function idFromString(text: string): bigint {
-    if (!/^\d+$/.test(text)) throw new Error(`invalid id ${JSON.stringify(text)}`);
+    if (!/^\d+$/.test(text))
+        throw new Error(`invalid id ${JSON.stringify(text)}`);
     const value = BigInt(text);
-    if (value > 18446744073709551615n) throw new Error('id out of uint64 range');
+    if (value > 18446744073709551615n)
+        throw new Error('id out of uint64 range');
     return value;
 }

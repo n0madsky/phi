@@ -14,7 +14,10 @@ describe('generated codec', () => {
             paneId: 'pane',
             processId: 'proc',
             runtimeGeneration: big,
-            payload: { $case: 'agentStarted', value: { eventSequence: overSafe, runId: big } },
+            payload: {
+                $case: 'agentStarted',
+                value: { eventSequence: overSafe, runId: big },
+            },
         });
         const back = PiToPhi.decode(PiToPhi.encode(msg).finish());
         expect(back.runtimeGeneration).toBe(big);

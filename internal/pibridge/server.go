@@ -104,7 +104,7 @@ func (s *Server) Stats() (activeStreams, activeSummaries, leases int) {
 	for _, l := range s.reg.byProcess {
 		l.mu.Lock()
 		if l.peer != nil {
-				activeStreams++
+			activeStreams++
 		}
 		l.mu.Unlock()
 	}
@@ -583,7 +583,7 @@ func (s *Server) Connect(stream pibridgepb.Integration_ConnectServer) error {
 		return status.Error(codes.Canceled, "lease revoked")
 	}
 	oldPeer := l.peer
-	p := newPeer(l, gen, hello.GetRuntimeId(), hello.GetSessionId(), caps, stream)
+	p := newPeer(gen, hello.GetSessionId(), caps, stream)
 	l.peer = p
 	l.mu.Unlock()
 
@@ -740,7 +740,7 @@ func (s *Server) handleMessage(l *lease, p *peer, msg *pibridgepb.PiToPhi) error
 		if res.GetRequestId() == 0 {
 			return status.Error(codes.InvalidArgument, "request id required")
 		}
-		if len(res.GetText()) > maxSummaryTextBytes {
+		if err := checkSummaryText(res.GetText()); err != nil {
 			return status.Error(codes.InvalidArgument, "summary text too large")
 		}
 		l.mu.Lock()

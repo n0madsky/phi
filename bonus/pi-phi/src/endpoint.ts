@@ -25,9 +25,12 @@ export function parseTarget(target: string): ParsedTarget {
     const rest = target.slice(prefix.length);
     if (rest === '') throw new Error('target has no address');
     if (rest.includes('\0')) throw new Error('target contains NUL');
-    if (rest.includes('%')) throw new Error('target must not use percent encoding');
-    if (rest.includes('@')) throw new Error('target must not carry credentials');
-    if (rest.includes('://')) throw new Error('target must not carry an authority');
+    if (rest.includes('%'))
+        throw new Error('target must not use percent encoding');
+    if (rest.includes('@'))
+        throw new Error('target must not carry credentials');
+    if (rest.includes('://'))
+        throw new Error('target must not carry an authority');
 
     if (rest.startsWith(PIPE_PREFIX)) {
         const name = rest.slice(PIPE_PREFIX.length);

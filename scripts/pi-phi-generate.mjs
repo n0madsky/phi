@@ -53,6 +53,12 @@ if (!existsSync(bufBin)) {
     process.exit(1);
 }
 rmSync(resolve(pkgDir, 'src/gen'), { recursive: true, force: true });
-run(bufBin, ['generate'], { cwd: pkgDir, env: { ...process.env, PATH: pathEntries } });
-run(bufBin, ['--version'], { cwd: pkgDir, env: { ...process.env, PATH: pathEntries } });
+run(bufBin, ['generate'], {
+    cwd: pkgDir,
+    env: { ...process.env, PATH: pathEntries },
+});
+run(bufBin, ['--version'], {
+    cwd: pkgDir,
+    env: { ...process.env, PATH: pathEntries },
+});
 console.log('pi-phi bindings generated');

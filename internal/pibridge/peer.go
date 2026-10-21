@@ -25,9 +25,7 @@ type connectStream interface {
 // overflow or a blocked send closes only this peer with an explicit gRPC
 // status and preserves the lease's authoritative journal and last state.
 type peer struct {
-	lease      *lease
 	generation uint64
-	runtimeID  string
 	sessionID  string
 	caps       map[string]bool
 
@@ -46,11 +44,9 @@ type peer struct {
 	writerDone chan struct{}
 }
 
-func newPeer(l *lease, generation uint64, runtimeID, sessionID string, caps map[string]bool, stream connectStream) *peer {
+func newPeer(generation uint64, sessionID string, caps map[string]bool, stream connectStream) *peer {
 	return &peer{
-		lease:      l,
 		generation: generation,
-		runtimeID:  runtimeID,
 		sessionID:  sessionID,
 		caps:       caps,
 		stream:     stream,

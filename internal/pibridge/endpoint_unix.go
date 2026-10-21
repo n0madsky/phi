@@ -13,12 +13,12 @@ import (
 )
 
 // randomSuffix is a seam for collision tests; production uses crypto/rand.
-var randomSuffix = func() string {
+var randomSuffix = func() (string, error) {
 	var buf [8]byte
 	if _, err := rand.Read(buf[:]); err != nil {
-		panic(fmt.Sprintf("pibridge: rand: %v", err))
+		return "", fmt.Errorf("pibridge: rand: %w", err)
 	}
-	return hex.EncodeToString(buf[:])
+	return hex.EncodeToString(buf[:]), nil
 }
 
 // defaultEndpointRoots prefers the OS temporary root and falls back to the
@@ -46,7 +46,11 @@ func NewEndpointWithRoots(roots []string) (*Endpoint, error) {
 		if root == "" {
 			continue
 		}
-		dir := filepath.Join(filepath.Clean(root), "phi-pi-"+randomSuffix())
+		suffix, err := randomSuffix()
+		if err != nil {
+			return nil, err
+		}
+		dir := filepath.Join(filepath.Clean(root), "phi-pi-"+suffix)
 		socket := filepath.Join(dir, socketBasename)
 		if len(socket) > maxSocketPathBytes {
 			continue

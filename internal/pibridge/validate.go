@@ -108,6 +108,18 @@ func checkSafeMessage(s string) error {
 	return nil
 }
 
+// checkSummaryText bounds summary output text. Callers map overlong or
+// non-UTF-8 text to a fixed protocol error.
+func checkSummaryText(s string) error {
+	if len(s) > maxSummaryTextBytes {
+		return fmt.Errorf("pibridge: summary text exceeds %d bytes", maxSummaryTextBytes)
+	}
+	if !utf8.ValidString(s) {
+		return fmt.Errorf("pibridge: summary text is not valid UTF-8")
+	}
+	return nil
+}
+
 // negotiateCapabilities intersects client-advertised names with the
 // server-supported set. Unknown names are ignored, never an error.
 func negotiateCapabilities(advised []string) map[string]bool {

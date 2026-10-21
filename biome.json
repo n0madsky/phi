@@ -13,6 +13,7 @@
             "bonus/pi-phi/src/**/*.ts",
             "bonus/pi-phi/test/**/*.ts",
             "bonus/pi-phi/*.mts",
+            "!bonus/pi-phi/src/gen/**",
             "desktop/electron/src/**/*.ts",
             "desktop/electron/test/**/*.ts",
             "desktop/electron/scripts/**/*.mjs",

@@ -567,7 +567,15 @@ func TestRevokeClosesStreamAndFailsPending(t *testing.T) {
 	if out.Kind != OutcomeRevoked {
 		t.Fatalf("outcome %+v, want Revoked", out)
 	}
-	_, err = stream.Recv()
+	// Drain to the terminal status: the admitted Summarize may or may not
+	// have flushed before Revoke closed the peer. Either way the stream
+	// must end Canceled and no further command may start.
+	for {
+		_, err = stream.Recv()
+		if err != nil {
+			break
+		}
+	}
 	if status.Code(err) != codes.Canceled {
 		t.Fatalf("stream code=%v, want Canceled", status.Code(err))
 	}

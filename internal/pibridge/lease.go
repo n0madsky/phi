@@ -16,12 +16,12 @@ import (
 const tokenBytes = 32
 
 // randomHex returns n cryptographically random bytes, hex-encoded.
-func randomHex(n int) string {
+func randomHex(n int) (string, error) {
 	buf := make([]byte, n)
 	if _, err := rand.Read(buf); err != nil {
-		panic(fmt.Sprintf("pibridge: rand: %v", err))
+		return "", fmt.Errorf("pibridge: rand: %w", err)
 	}
-	return hex.EncodeToString(buf)
+	return hex.EncodeToString(buf), nil
 }
 
 // lease is the registered process identity for one provisioned Pi process.
@@ -95,7 +95,6 @@ type registry struct {
 	mu        sync.Mutex
 	byProcess map[string]*lease
 	byPane    map[string]*lease
-	onRevoke  func(paneID, processID string)
 }
 
 func newRegistry() *registry {
@@ -108,7 +107,10 @@ func newRegistry() *registry {
 // registerPending creates a lease with a random process nonce and token
 // before spawn. Pane identity must not already hold a live or pending lease.
 func (r *registry) registerPending(paneID string) (*lease, error) {
-	process := randomHex(16)
+	process, err := randomHex(16)
+	if err != nil {
+		return nil, err
+	}
 	var token [tokenBytes]byte
 	if _, err := rand.Read(token[:]); err != nil {
 		return nil, fmt.Errorf("pibridge: token: %w", err)
@@ -170,7 +172,6 @@ func (r *registry) revokeWithCount(processID string) int {
 	if cur, paneOK := r.byPane[l.paneID]; paneOK && cur == l {
 		delete(r.byPane, l.paneID)
 	}
-	onRevoke := r.onRevoke
 	r.mu.Unlock()
 
 	l.mu.Lock()
@@ -189,9 +190,6 @@ func (r *registry) revokeWithCount(processID string) int {
 	}
 	if peer != nil {
 		peer.closeWith(codes.Canceled, "lease revoked")
-	}
-	if onRevoke != nil {
-		onRevoke(l.paneID, l.processID)
 	}
 	return len(pending)
 }

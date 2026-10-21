@@ -34,7 +34,8 @@ export class BoundedQueue<T extends SizedMessage> {
     /** Try to enqueue. Returns false on overflow without mutating. */
     tryEnqueue(msg: T): boolean {
         if (this.outstanding >= MAX_QUEUED_MESSAGES) return false;
-        if (this.outstandingBytes + msg.byteSize > MAX_QUEUED_BYTES) return false;
+        if (this.outstandingBytes + msg.byteSize > MAX_QUEUED_BYTES)
+            return false;
         this.items.push(msg);
         this.bytes += msg.byteSize;
         return true;

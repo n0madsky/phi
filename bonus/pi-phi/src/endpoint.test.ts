@@ -7,7 +7,9 @@ describe('parseTarget', () => {
             kind: 'unix',
             path: '/tmp/phi-pi-abc/bridge.sock',
         });
-        expect(parseTarget('unix:/tmp/phi pi/bridge.sock').path).toBe('/tmp/phi pi/bridge.sock');
+        expect(parseTarget('unix:/tmp/phi pi/bridge.sock').path).toBe(
+            '/tmp/phi pi/bridge.sock',
+        );
     });
     it('accepts literal local pipe names', () => {
         const target = String.raw`unix:\\.\pipe\phi-pi-` + 'ab'.repeat(16);

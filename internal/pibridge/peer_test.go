@@ -41,10 +41,6 @@ func (b *blockingStream) Recv() (*pibridgepb.PiToPhi, error) {
 
 func (b *blockingStream) Context() context.Context { return b.ctx }
 
-func testLeaseForPeer() *lease {
-	return &lease{paneID: "pane", processID: "proc", state: leaseLive, nextReqID: 1, pending: map[uint64]*pendingReq{}}
-}
-
 func acceptedMsg(n int) *pibridgepb.PhiToPi {
 	return &pibridgepb.PhiToPi{
 		PaneId: "pane", ProcessId: "proc", RuntimeGeneration: 1,
@@ -55,9 +51,8 @@ func acceptedMsg(n int) *pibridgepb.PhiToPi {
 }
 
 func TestPeerQueueCountBound(t *testing.T) {
-	l := testLeaseForPeer()
 	bs := newBlockingStream()
-	p := newPeer(l, 1, "rt", "sess", map[string]bool{CapabilityLifecycle: true}, bs)
+	p := newPeer(1, "sess", map[string]bool{CapabilityLifecycle: true}, bs)
 	go p.runWriter()
 	// Let the writer take the first message and block in Send.
 	if !p.send(acceptedMsg(4)) {
@@ -97,9 +92,8 @@ func TestPeerQueueCountBound(t *testing.T) {
 }
 
 func TestPeerQueueByteBound(t *testing.T) {
-	l := testLeaseForPeer()
 	bs := newBlockingStream()
-	p := newPeer(l, 1, "rt", "sess", map[string]bool{}, bs)
+	p := newPeer(1, "sess", map[string]bool{}, bs)
 	go p.runWriter()
 	if !p.send(acceptedMsg(4)) {
 		t.Fatal("first send rejected")
@@ -120,9 +114,8 @@ func TestPeerQueueByteBound(t *testing.T) {
 }
 
 func TestPeerCloseIdempotent(t *testing.T) {
-	l := testLeaseForPeer()
 	bs := newBlockingStream()
-	p := newPeer(l, 1, "rt", "sess", map[string]bool{}, bs)
+	p := newPeer(1, "sess", map[string]bool{}, bs)
 	p.closeWith(codes.Canceled, "first")
 	p.closeWith(codes.Internal, "second")
 	if err := p.closeErr(); status.Code(err) != codes.Canceled || !strings.Contains(err.Error(), "first") {

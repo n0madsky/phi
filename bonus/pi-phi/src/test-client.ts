@@ -3,20 +3,25 @@
 // and proxy-off dial options the product extension reuses in M2. Not
 // shipped; integration tests own its lifecycle.
 
-import { ChannelCredentials, ClientDuplexStream, Metadata, ServiceError } from '@grpc/grpc-js';
 import {
-    Accepted,
+    ChannelCredentials,
+    type ClientDuplexStream,
+    Metadata,
+    type ServiceError,
+} from '@grpc/grpc-js';
+import {
+    type Accepted,
     AgentSettled,
     AgentStarted,
     CancelAcknowledged,
     CommandError,
     CommandErrorCode,
     IntegrationClient,
-    PhiToPi,
+    type PhiToPi,
     PiToPhi,
-    StateSnapshot,
+    type StateSnapshot,
     SummaryResult,
-    SummaryTermination,
+    type SummaryTermination,
 } from './gen/bridge.js';
 import { CommandTracker } from './commands.js';
 import { parseTarget } from './endpoint.js';
@@ -50,12 +55,16 @@ interface QueuedFrame {
     readonly msg: PiToPhi;
 }
 
-export interface SummaryHandler {
-    (requestId: bigint, sessionId: string, leafId: string, deadlineMs: bigint, revision: bigint): Promise<{
-        text?: string;
-        error?: { code: CommandErrorCode; safeMessage: string };
-    }>;
-}
+export type SummaryHandler = (
+    requestId: bigint,
+    sessionId: string,
+    leafId: string,
+    deadlineMs: bigint,
+    revision: bigint,
+) => Promise<{
+    text?: string;
+    error?: { code: CommandErrorCode; safeMessage: string };
+}>;
 
 /** Synthetic runtime with queue, tracker, and explicit stream status. */
 export class BridgeTestClient {
@@ -83,7 +92,9 @@ export class BridgeTestClient {
     constructor(opts: TestClientOptions) {
         const parsed = parseTarget(opts.target);
         if (parsed.kind !== 'unix' && process.platform !== 'win32') {
-            throw new Error(`unsupported target kind ${parsed.kind} on ${process.platform}`);
+            throw new Error(
+                `unsupported target kind ${parsed.kind} on ${process.platform}`,
+            );
         }
         this.pane = opts.pane;
         this.process = opts.process;
@@ -91,24 +102,39 @@ export class BridgeTestClient {
         this.generation = opts.generation ?? 1n;
         this.runtimeId = opts.runtimeId ?? `rt-${opts.pane}`;
         this.sessionId = opts.sessionId ?? `sess-${opts.pane}`;
-        this.capabilities = opts.capabilities ?? [CAPABILITY_LIFECYCLE, CAPABILITY_SUMMARY];
+        this.capabilities = opts.capabilities ?? [
+            CAPABILITY_LIFECYCLE,
+            CAPABILITY_SUMMARY,
+        ];
         this.state = opts.state;
 
-        this.client = new IntegrationClient(opts.target, ChannelCredentials.createInsecure(), {
-            'grpc.use_local_subchannel_pool': 1,
-            'grpc.enable_retries': 0,
-            'grpc.enable_http_proxy': 0,
-            'grpc.max_receive_message_length': MAX_MESSAGE_BYTES,
-            'grpc.max_send_message_length': MAX_MESSAGE_BYTES,
-        });
+        this.client = new IntegrationClient(
+            opts.target,
+            ChannelCredentials.createInsecure(),
+            {
+                'grpc.use_local_subchannel_pool': 1,
+                'grpc.enable_retries': 0,
+                'grpc.enable_http_proxy': 0,
+                'grpc.max_receive_message_length': MAX_MESSAGE_BYTES,
+                'grpc.max_send_message_length': MAX_MESSAGE_BYTES,
+            },
+        );
     }
 
     /** Override the hello identity for negative tests. */
-    withHelloOverride(over: { protocolVersion?: number; sessionId?: string; runtimeId?: string }): this {
+    withHelloOverride(over: {
+        protocolVersion?: number;
+        sessionId?: string;
+        runtimeId?: string;
+    }): this {
         this.helloOverride = over;
         return this;
     }
-    private helloOverride: { protocolVersion?: number; sessionId?: string; runtimeId?: string } = {};
+    private helloOverride: {
+        protocolVersion?: number;
+        sessionId?: string;
+        runtimeId?: string;
+    } = {};
 
     /** Open the stream, send Hello, and await Accepted or a status. */
     async connect(): Promise<Accepted> {
@@ -118,7 +144,7 @@ export class BridgeTestClient {
         md.set(METADATA_TOKEN_KEY, this.token);
         const stream = this.client.connect(md);
         this.stream = stream;
-        this.statusPromise = new Promise(resolve => {
+        this.statusPromise = new Promise((resolve) => {
             this.statusResolve = resolve;
         });
         stream.on('status', (status: ServiceError) => {
@@ -137,7 +163,8 @@ export class BridgeTestClient {
             payload: {
                 $case: 'hello',
                 value: {
-                    protocolVersion: this.helloOverride.protocolVersion ?? PROTOCOL_VERSION,
+                    protocolVersion:
+                        this.helloOverride.protocolVersion ?? PROTOCOL_VERSION,
                     packageVersion: '0.1.0',
                     hostVersion: 'test',
                     sessionId: this.helloOverride.sessionId ?? this.sessionId,
@@ -156,12 +183,18 @@ export class BridgeTestClient {
     }
 
     private acceptedQueue: Accepted[] = [];
-    private acceptedWaiters: Array<{ resolve: (a: Accepted) => void; reject: (e: Error) => void }> = [];
+    private acceptedWaiters: Array<{
+        resolve: (a: Accepted) => void;
+        reject: (e: Error) => void;
+    }> = [];
 
     private async awaitAccepted(): Promise<Accepted> {
         if (this.acceptedQueue.length > 0) return this.acceptedQueue.shift()!;
         return new Promise<Accepted>((resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error('accepted deadline')), HELLO_DEADLINE_MS);
+            const timer = setTimeout(
+                () => reject(new Error('accepted deadline')),
+                HELLO_DEADLINE_MS,
+            );
             this.acceptedWaiters.push({
                 resolve: (a: Accepted) => {
                     clearTimeout(timer);
@@ -172,10 +205,15 @@ export class BridgeTestClient {
                     reject(e);
                 },
             });
-            void this.statusPromise?.then(status => {
+            void this.statusPromise?.then((status) => {
                 if (status) {
                     const waiter = this.acceptedWaiters.shift();
-                    waiter?.reject(Object.assign(new Error(status.details || 'connect failed'), { code: status.code }));
+                    waiter?.reject(
+                        Object.assign(
+                            new Error(status.details || 'connect failed'),
+                            { code: status.code },
+                        ),
+                    );
                 }
             });
         });
@@ -210,15 +248,38 @@ export class BridgeTestClient {
                 return;
             }
             try {
-                const out = await this.onSummary(s.requestId, s.sessionId, s.leafId, s.deadlineMs, s.stateRevision);
+                const out = await this.onSummary(
+                    s.requestId,
+                    s.sessionId,
+                    s.leafId,
+                    s.deadlineMs,
+                    s.stateRevision,
+                );
                 if (out.error) {
-                    this.sendCommandError(s.requestId, out.error.code, out.error.safeMessage);
+                    this.sendCommandError(
+                        s.requestId,
+                        out.error.code,
+                        out.error.safeMessage,
+                    );
                 } else {
-                    this.sendSummaryResult(s.requestId, s.sessionId, s.leafId, out.text ?? '', s.stateRevision);
+                    this.sendSummaryResult(
+                        s.requestId,
+                        s.sessionId,
+                        s.leafId,
+                        out.text ?? '',
+                        s.stateRevision,
+                    );
                 }
             } catch (err) {
-                const safe = err instanceof Error ? err.message.slice(0, 256) : 'handler failed';
-                this.sendCommandError(s.requestId, CommandErrorCode.COMMAND_ERROR_INTERNAL, safe);
+                const safe =
+                    err instanceof Error
+                        ? err.message.slice(0, 256)
+                        : 'handler failed';
+                this.sendCommandError(
+                    s.requestId,
+                    CommandErrorCode.COMMAND_ERROR_INTERNAL,
+                    safe,
+                );
             } finally {
                 this.tracker.complete(s.requestId);
             }
@@ -238,17 +299,27 @@ export class BridgeTestClient {
             paneId: this.pane,
             processId: this.process,
             runtimeGeneration: this.generation,
-            payload: { $case: 'agentStarted', value: AgentStarted.create({ eventSequence, runId }) },
+            payload: {
+                $case: 'agentStarted',
+                value: AgentStarted.create({ eventSequence, runId }),
+            },
         });
         void this.pumpWriter();
     }
 
-    sendSettled(eventSequence: bigint, runId: bigint, outcome: AgentSettled['outcome']): void {
+    sendSettled(
+        eventSequence: bigint,
+        runId: bigint,
+        outcome: AgentSettled['outcome'],
+    ): void {
         this.enqueueFrame({
             paneId: this.pane,
             processId: this.process,
             runtimeGeneration: this.generation,
-            payload: { $case: 'agentSettled', value: AgentSettled.create({ eventSequence, runId, outcome }) },
+            payload: {
+                $case: 'agentSettled',
+                value: AgentSettled.create({ eventSequence, runId, outcome }),
+            },
         });
         void this.pumpWriter();
     }
@@ -269,25 +340,44 @@ export class BridgeTestClient {
         void this.pumpWriter();
     }
 
-    sendSummaryResult(requestId: bigint, sessionId: string, leafId: string, text: string, revision: bigint): void {
+    sendSummaryResult(
+        requestId: bigint,
+        sessionId: string,
+        leafId: string,
+        text: string,
+        revision: bigint,
+    ): void {
         this.enqueueFrame({
             paneId: this.pane,
             processId: this.process,
             runtimeGeneration: this.generation,
             payload: {
                 $case: 'summaryResult',
-                value: SummaryResult.create({ requestId, sessionId, leafId, text, stateRevision: revision }),
+                value: SummaryResult.create({
+                    requestId,
+                    sessionId,
+                    leafId,
+                    text,
+                    stateRevision: revision,
+                }),
             },
         });
         void this.pumpWriter();
     }
 
-    sendCommandError(requestId: bigint, code: CommandErrorCode, safeMessage: string): void {
+    sendCommandError(
+        requestId: bigint,
+        code: CommandErrorCode,
+        safeMessage: string,
+    ): void {
         this.enqueueFrame({
             paneId: this.pane,
             processId: this.process,
             runtimeGeneration: this.generation,
-            payload: { $case: 'commandError', value: CommandError.create({ requestId, code, safeMessage }) },
+            payload: {
+                $case: 'commandError',
+                value: CommandError.create({ requestId, code, safeMessage }),
+            },
         });
         void this.pumpWriter();
     }
@@ -371,8 +461,9 @@ export class BridgeTestClient {
         for (;;) {
             if (this.queue.outstanding === 0) return;
             if (this.writerError) throw this.writerError;
-            if (Date.now() - start > timeoutMs) throw new Error('drain timeout');
-            await new Promise(r => setTimeout(r, 10));
+            if (Date.now() - start > timeoutMs)
+                throw new Error('drain timeout');
+            await new Promise((r) => setTimeout(r, 10));
         }
     }
 

@@ -142,7 +142,7 @@ func TestEndpointNoRootFits(t *testing.T) {
 func TestEndpointCollisionDoesNotUnlink(t *testing.T) {
 	skipOnWindows(t)
 	old := randomSuffix
-	randomSuffix = func() string { return "fixedsuffix" }
+	randomSuffix = func() (string, error) { return "fixedsuffix", nil }
 	defer func() { randomSuffix = old }()
 
 	root := t.TempDir()

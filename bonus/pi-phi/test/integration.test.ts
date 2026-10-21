@@ -46,8 +46,8 @@ let server: ReturnType<typeof spawn>;
 let target = '';
 let socketPath = '';
 let socketDir = '';
-let pendingLines: string[] = [];
-let lineWaiters: Array<(line: string) => void> = [];
+const pendingLines: string[] = [];
+const lineWaiters: Array<(line: string) => void> = [];
 
 function onLine(line: string): void {
     const waiter = lineWaiters.shift();
@@ -59,7 +59,10 @@ function readLine(timeoutMs = 10_000): Promise<string> {
     const queued = pendingLines.shift();
     if (queued !== undefined) return Promise.resolve(queued);
     return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('control read timeout')), timeoutMs);
+        const timer = setTimeout(
+            () => reject(new Error('control read timeout')),
+            timeoutMs,
+        );
         lineWaiters.push((line: string) => {
             clearTimeout(timer);
             resolve(line);
@@ -69,12 +72,14 @@ function readLine(timeoutMs = 10_000): Promise<string> {
 
 async function control(op: Record<string, unknown>): Promise<ControlResponse> {
     if (!server.stdin) throw new Error('testserver stdin unavailable');
-    server.stdin.write(JSON.stringify(op) + '\n');
+    server.stdin.write(`${JSON.stringify(op)}\n`);
     const line = await readLine();
     return JSON.parse(line) as ControlResponse;
 }
 
-async function registerPane(pane: string): Promise<{ process: string; token: string }> {
+async function registerPane(
+    pane: string,
+): Promise<{ process: string; token: string }> {
     const res = await control({ op: 'register', pane });
     expect(res.ok, `register ${pane}: ${res.error}`).toBe(true);
     return { process: res.process!, token: res.token! };
@@ -82,7 +87,12 @@ async function registerPane(pane: string): Promise<{ process: string; token: str
 
 async function makeClient(
     pane: string,
-    opts: { token?: string; capabilities?: string[]; sessionId?: string; runtimeId?: string } = {},
+    opts: {
+        token?: string;
+        capabilities?: string[];
+        sessionId?: string;
+        runtimeId?: string;
+    } = {},
 ): Promise<{ client: BridgeTestClient; process: string }> {
     const { process, token } = await registerPane(pane);
     await control({ op: 'complete', process });
@@ -106,9 +116,13 @@ async function makeClient(
 
 beforeAll(async () => {
     const bin = process.env.PI_PHI_TESTSERVER;
-    expect(bin, 'PI_PHI_TESTSERVER must point at the testserver binary').toBeTruthy();
+    expect(
+        bin,
+        'PI_PHI_TESTSERVER must point at the testserver binary',
+    ).toBeTruthy();
     server = spawn(bin!, { stdio: ['pipe', 'pipe', 'inherit'] });
-    if (!server.stdin || !server.stdout) throw new Error('testserver stdio unavailable');
+    if (!server.stdin || !server.stdout)
+        throw new Error('testserver stdio unavailable');
     let buffer = '';
     server.stdout.on('data', (chunk: Buffer) => {
         buffer += chunk.toString('utf8');
@@ -137,7 +151,7 @@ afterAll(async () => {
         } catch {
             server.kill();
         }
-        await new Promise(resolve => server.once('exit', resolve));
+        await new Promise((resolve) => server.once('exit', resolve));
     }
     // Socket and directory must be gone after shutdown.
     if (socketPath) {
@@ -179,7 +193,9 @@ describe('auth and protocol', () => {
             process,
             token: '0'.repeat(64),
         });
-        await expect(client.connect()).rejects.toMatchObject({ code: GrpcStatus.UNAUTHENTICATED });
+        await expect(client.connect()).rejects.toMatchObject({
+            code: GrpcStatus.UNAUTHENTICATED,
+        });
         await client.close();
     }, 20_000);
     it('rejects a pane mismatch', async () => {
@@ -191,13 +207,17 @@ describe('auth and protocol', () => {
             process,
             token,
         });
-        await expect(client.connect()).rejects.toMatchObject({ code: GrpcStatus.PERMISSION_DENIED });
+        await expect(client.connect()).rejects.toMatchObject({
+            code: GrpcStatus.PERMISSION_DENIED,
+        });
         await client.close();
     }, 20_000);
     it('rejects an unsupported version', async () => {
         const { client } = await makeClient('pane-badver');
         client.withHelloOverride({ protocolVersion: 999 });
-        await expect(client.connect()).rejects.toMatchObject({ code: GrpcStatus.FAILED_PRECONDITION });
+        await expect(client.connect()).rejects.toMatchObject({
+            code: GrpcStatus.FAILED_PRECONDITION,
+        });
         await client.close();
     }, 20_000);
 });
@@ -214,34 +234,44 @@ describe('lifecycle isolation', () => {
             clients.push(client);
             processes.push(process);
         }
-        await Promise.all(clients.map(c => c.connect()));
+        await Promise.all(clients.map((c) => c.connect()));
         for (let i = 0; i < N; i++) {
             for (let seq = 1; seq <= PER; seq++) {
                 const run = BigInt(seq);
                 if (seq % 2 === 1) clients[i]!.sendStarted(BigInt(seq), run);
-                else clients[i]!.sendSettled(BigInt(seq), run - 1n, RunOutcome.RUN_OUTCOME_COMPLETED);
+                else
+                    clients[i]!.sendSettled(
+                        BigInt(seq),
+                        run - 1n,
+                        RunOutcome.RUN_OUTCOME_COMPLETED,
+                    );
                 if (seq % 8 === 0) await clients[i]!.drain();
             }
         }
-        await Promise.all(clients.map(c => c.drain()));
+        await Promise.all(clients.map((c) => c.drain()));
         // Allow the server to drain all streams.
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 1500));
         for (let i = 0; i < N; i++) {
-            const view = await control({ op: 'inspect', process: processes[i] });
+            const view = await control({
+                op: 'inspect',
+                process: processes[i],
+            });
             expect(view.ok).toBe(true);
             expect(view.journalLast).toBe(String(PER));
             expect(view.staleDrops).toBe(0);
         }
         const stats = await control({ op: 'stats' });
         expect(stats.active).toBeGreaterThanOrEqual(N);
-        await Promise.all(clients.map(c => c.close()));
+        await Promise.all(clients.map((c) => c.close()));
     }, 120_000);
 });
 
 describe('summary correlation', () => {
     it('round-trips unicode and large revisions', async () => {
         const { client, process } = await makeClient('pane-sum-ok');
-        client.onSummary = async () => ({ text: 'Synthetic summary ↔ünicode—done ✓' });
+        client.onSummary = async () => ({
+            text: 'Synthetic summary ↔ünicode—done ✓',
+        });
         await client.connect();
         const sum = await control({
             op: 'summarize',
@@ -254,7 +284,12 @@ describe('summary correlation', () => {
             deadlineMs: 10_000,
         });
         expect(sum.ok, sum.error).toBe(true);
-        const out = await control({ op: 'await', process, requestId: sum.requestId, timeoutMs: 10_000 });
+        const out = await control({
+            op: 'await',
+            process,
+            requestId: sum.requestId,
+            timeoutMs: 10_000,
+        });
         expect(out.ok).toBe(true);
         expect(out.kind).toBe('summary');
         expect(out.text).toBe('Synthetic summary ↔ünicode—done ✓');
@@ -263,7 +298,10 @@ describe('summary correlation', () => {
     it('delivers command errors without closing the stream', async () => {
         const { client, process } = await makeClient('pane-sum-err');
         client.onSummary = async () => ({
-            error: { code: CommandErrorCode.COMMAND_ERROR_BUSY, safeMessage: 'busy' },
+            error: {
+                code: CommandErrorCode.COMMAND_ERROR_BUSY,
+                safeMessage: 'busy',
+            },
         });
         await client.connect();
         const sum = await control({
@@ -277,7 +315,12 @@ describe('summary correlation', () => {
             deadlineMs: 10_000,
         });
         expect(sum.ok).toBe(true);
-        const out = await control({ op: 'await', process, requestId: sum.requestId, timeoutMs: 10_000 });
+        const out = await control({
+            op: 'await',
+            process,
+            requestId: sum.requestId,
+            timeoutMs: 10_000,
+        });
         expect(out.kind).toBe('error');
         expect(out.code).toBe(CommandErrorCode.COMMAND_ERROR_BUSY);
         // Stream stays healthy for a second command.
@@ -293,7 +336,12 @@ describe('summary correlation', () => {
             deadlineMs: 10_000,
         });
         expect(sum2.ok).toBe(true);
-        const out2 = await control({ op: 'await', process, requestId: sum2.requestId, timeoutMs: 10_000 });
+        const out2 = await control({
+            op: 'await',
+            process,
+            requestId: sum2.requestId,
+            timeoutMs: 10_000,
+        });
         expect(out2.kind).toBe('summary');
         await client.close();
     }, 30_000);
@@ -324,7 +372,11 @@ describe('concurrency', () => {
         a.client.onSummary = hold;
         b.client.onSummary = hold;
         c.client.onSummary = hold;
-        await Promise.all([a.client.connect(), b.client.connect(), c.client.connect()]);
+        await Promise.all([
+            a.client.connect(),
+            b.client.connect(),
+            c.client.connect(),
+        ]);
         const first = await control({
             op: 'summarize',
             process: a.process,
@@ -374,7 +426,11 @@ describe('concurrency', () => {
         await control({ op: 'revoke', process: a.process });
         await control({ op: 'revoke', process: b.process });
         await control({ op: 'revoke', process: c.process });
-        await Promise.all([a.client.close(), b.client.close(), c.client.close()]);
+        await Promise.all([
+            a.client.close(),
+            b.client.close(),
+            c.client.close(),
+        ]);
     }, 30_000);
 });
 
@@ -388,7 +444,12 @@ describe('cancellation', () => {
         // Hold the slot until the test acks.
         client.onSummary = () => new Promise(() => {});
         await client.connect();
-        const unknown = await control({ op: 'cancel', process, requestId: '999', reason: 1 });
+        const unknown = await control({
+            op: 'cancel',
+            process,
+            requestId: '999',
+            reason: 1,
+        });
         expect(unknown.ok).toBe(true);
         const sum = await control({
             op: 'summarize',
@@ -402,14 +463,29 @@ describe('cancellation', () => {
         });
         expect(sum.ok).toBe(true);
         const id = BigInt(sum.requestId!);
-        await control({ op: 'cancel', process, requestId: sum.requestId, reason: 1 });
-        await control({ op: 'cancel', process, requestId: sum.requestId, reason: 1 });
-        await new Promise(r => setTimeout(r, 300));
+        await control({
+            op: 'cancel',
+            process,
+            requestId: sum.requestId,
+            reason: 1,
+        });
+        await control({
+            op: 'cancel',
+            process,
+            requestId: sum.requestId,
+            reason: 1,
+        });
+        await new Promise((r) => setTimeout(r, 300));
         expect(cancels).toBeGreaterThanOrEqual(1);
         const before = await control({ op: 'inspect', process });
         expect(before.pending).toBe(1);
         client.sendCancelAck(id, SummaryTermination.SUMMARY_TERMINATION_ENDED);
-        const out = await control({ op: 'await', process, requestId: sum.requestId, timeoutMs: 10_000 });
+        const out = await control({
+            op: 'await',
+            process,
+            requestId: sum.requestId,
+            timeoutMs: 10_000,
+        });
         expect(out.kind).toBe('cancelAck');
         const after = await control({ op: 'inspect', process });
         expect(after.pending).toBe(0);
@@ -433,7 +509,13 @@ describe('message bounds', () => {
             deadlineMs: 10_000,
         });
         expect(sum.ok).toBe(true);
-        client.sendSummaryResult(BigInt(sum.requestId!), 'sess-pane-big-text', 'leaf-pane-big-text', 'x'.repeat(129 * 1024), 0n);
+        client.sendSummaryResult(
+            BigInt(sum.requestId!),
+            'sess-pane-big-text',
+            'leaf-pane-big-text',
+            'x'.repeat(129 * 1024),
+            0n,
+        );
         const status = await client.awaitStatus();
         expect(status?.code).toBe(GrpcStatus.INVALID_ARGUMENT);
         await client.close();
@@ -453,7 +535,11 @@ describe('message bounds', () => {
             deadlineMs: 10_000,
         });
         expect(sum.ok).toBe(true);
-        client.sendCommandError(BigInt(sum.requestId!), CommandErrorCode.COMMAND_ERROR_INTERNAL, 'e'.repeat(3 * 1024));
+        client.sendCommandError(
+            BigInt(sum.requestId!),
+            CommandErrorCode.COMMAND_ERROR_INTERNAL,
+            'e'.repeat(3 * 1024),
+        );
         const status = await client.awaitStatus();
         expect(status?.code).toBe(GrpcStatus.INVALID_ARGUMENT);
         await client.close();
@@ -467,7 +553,11 @@ describe('slow peer', () => {
         await slow.client.connect();
         await healthy.client.connect();
         slow.client.pause();
-        const flood = await control({ op: 'flood', process: slow.process, count: 32 });
+        const flood = await control({
+            op: 'flood',
+            process: slow.process,
+            count: 32,
+        });
         expect(flood.ok).toBe(true);
         const status = await slow.client.awaitStatus();
         expect(status?.code).toBe(GrpcStatus.RESOURCE_EXHAUSTED);
@@ -475,7 +565,7 @@ describe('slow peer', () => {
         for (let seq = 1; seq <= 4; seq++) {
             healthy.client.sendStarted(BigInt(seq), BigInt(seq));
         }
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, 500));
         const view = await control({ op: 'inspect', process: healthy.process });
         expect(view.journalLast).toBe('4');
         await slow.client.close();
