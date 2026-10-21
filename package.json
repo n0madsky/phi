@@ -10,6 +10,10 @@
   },
   "scripts": {
     "build:web": "tsc -p tsconfig.build.json",
+    "gen:pi-phi": "node scripts/pi-phi-generate.mjs",
+    "build:pi-phi": "node scripts/pi-phi-build.mjs",
+    "check:pi-phi-generated": "node scripts/pi-phi-check-generated.mjs",
+    "test:pi-phi:integration": "node scripts/pi-phi-integration.mjs",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.e2e.json",
     "test": "vitest run",
     "test:watch": "vitest",
