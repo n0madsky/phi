@@ -401,6 +401,40 @@ describe('Runtime reconnect', () => {
         expect(channels[0]!.sends).toHaveLength(0);
     });
 
+    it('releases a stream that connects after shutdown', async () => {
+        const channels: MockChannel[] = [];
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        const rt = new Runtime({
+            creds: CREDS,
+            generation: 1n,
+            backoffBaseMs: 5,
+            backoffMaxMs: 10,
+            makeChannel: (_c, hooks) => {
+                const ch = mockChannel();
+                ch.hooks = hooks;
+                const inner = ch.connect;
+                ch.connect = async (hello) => {
+                    await gate;
+                    return inner(hello);
+                };
+                channels.push(ch);
+                return ch;
+            },
+        });
+        rt.start(ctx());
+        await sleep(10);
+        rt.shutdown();
+        release();
+        await sleep(25);
+        // The late acceptance closes the channel instead of adopting
+        // it, and no retry follows a shutdown: one close from the
+        // shutdown path, one from the post-connect guard.
+        expect(channels).toHaveLength(1);
+        expect(channels[0]!.closed).toBe(2);
+        expect(channels[0]!.hellos).toHaveLength(1);
+    });
+
     it('maps aborted settlements from the 1.3.0 event shape', async () => {
         const { settledAborted } = await import('./extension.js');
         expect(settledAborted({ type: 'agent_settled', aborted: true })).toBe(

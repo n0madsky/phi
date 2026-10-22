@@ -314,3 +314,24 @@ func TestBridgeAttachEncoding(t *testing.T) {
 		t.Fatalf("attach catch-up %+v", view)
 	}
 }
+
+func TestBridgeSnapshotCopiesRunningFlag(t *testing.T) {
+	hub := testBridgeHub()
+	b := startPiBridge(hub)
+	if b == nil {
+		t.Fatal("bridge did not start")
+	}
+	defer b.Stop()
+
+	env, _, _ := b.Provision("pane-1")
+	b.onState("pane-1", env[piBridgeEnvProcess], true, "p/m", []string{"pi.lifecycle.v1"})
+	b.mu.Lock()
+	p := b.panes["pane-1"]
+	view := p.snapshot()
+	// Simulate a future in-place update: a published view must not move.
+	*p.lastRunning = false
+	b.mu.Unlock()
+	if view.running == nil || *view.running != true {
+		t.Fatal("published snapshot shares the live running flag")
+	}
+}
