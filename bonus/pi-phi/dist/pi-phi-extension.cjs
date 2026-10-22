@@ -24579,6 +24579,114 @@ var require_src3 = __commonJS({
   }
 });
 
+// src/protocol.ts
+var PROTOCOL_VERSION = 1;
+var CAPABILITY_LIFECYCLE = "pi.lifecycle.v1";
+var MAX_MESSAGE_BYTES = 256 * 1024;
+var MAX_QUEUED_MESSAGES = 16;
+var MAX_QUEUED_BYTES = 256 * 1024;
+var BLOCKED_SEND_TIMEOUT_MS = 5e3;
+var HELLO_DEADLINE_MS = 5e3;
+var MAX_JOURNAL_RECORDS = 64;
+var RECONNECT_BASE_MS = 500;
+var RECONNECT_MAX_MS = 3e4;
+var RECONNECT_STABLE_MS = 3e4;
+var METADATA_TOKEN_KEY = "phi-pi-token";
+var METADATA_PANE_KEY = "phi-pi-pane";
+var METADATA_PROCESS_KEY = "phi-pi-process";
+
+// src/endpoint.ts
+var InvalidTargetError = class extends Error {
+};
+var PIPE_PREFIX = String.raw`\\.\pipe\phi-pi-`;
+function isHex(s) {
+  return /^[0-9a-fA-F]+$/.test(s);
+}
+function parseTarget(target) {
+  const prefix = "unix:";
+  if (!target.startsWith(prefix)) {
+    throw new InvalidTargetError("target must use unix: scheme");
+  }
+  const rest = target.slice(prefix.length);
+  if (rest === "") throw new InvalidTargetError("target has no address");
+  if (rest.includes("\0"))
+    throw new InvalidTargetError("target contains NUL");
+  if (rest.includes("%"))
+    throw new InvalidTargetError("target must not use percent encoding");
+  if (rest.includes("@"))
+    throw new InvalidTargetError("target must not carry credentials");
+  if (rest.includes("://"))
+    throw new InvalidTargetError("target must not carry an authority");
+  if (rest.startsWith(PIPE_PREFIX)) {
+    const name = rest.slice(PIPE_PREFIX.length);
+    if (name.length < 32)
+      throw new InvalidTargetError("pipe name too short");
+    if (!isHex(name)) throw new InvalidTargetError("pipe name must be hex");
+    return { kind: "windows-pipe", path: rest };
+  }
+  if (rest.startsWith(String.raw`\\`)) {
+    throw new InvalidTargetError("remote pipe hosts are rejected");
+  }
+  if (!rest.startsWith("/")) {
+    throw new InvalidTargetError("unix socket path must be absolute");
+  }
+  if (rest.startsWith("//")) {
+    throw new InvalidTargetError("target must not carry an authority");
+  }
+  return { kind: "unix", path: rest };
+}
+
+// src/queue.ts
+var BoundedQueue = class {
+  items = [];
+  bytes = 0;
+  inFlight = 0;
+  inFlightBytes = 0;
+  get length() {
+    return this.items.length;
+  }
+  get queuedBytes() {
+    return this.bytes;
+  }
+  get outstanding() {
+    return this.items.length + this.inFlight;
+  }
+  get outstandingBytes() {
+    return this.bytes + this.inFlightBytes;
+  }
+  /** Try to enqueue. Returns false on overflow without mutating. */
+  tryEnqueue(msg) {
+    if (this.outstanding >= MAX_QUEUED_MESSAGES) return false;
+    if (this.outstandingBytes + msg.byteSize > MAX_QUEUED_BYTES)
+      return false;
+    this.items.push(msg);
+    this.bytes += msg.byteSize;
+    return true;
+  }
+  /** Mark the head as in-flight and return it, or undefined when empty. */
+  beginSend() {
+    const msg = this.items.shift();
+    if (msg === void 0) return void 0;
+    this.bytes -= msg.byteSize;
+    this.inFlight += 1;
+    this.inFlightBytes += msg.byteSize;
+    return msg;
+  }
+  /** Release one in-flight message after its send settles. */
+  endSend(msg) {
+    this.inFlight -= 1;
+    this.inFlightBytes -= msg.byteSize;
+    if (this.inFlight < 0) this.inFlight = 0;
+    if (this.inFlightBytes < 0) this.inFlightBytes = 0;
+  }
+  clear() {
+    this.items = [];
+    this.bytes = 0;
+    this.inFlight = 0;
+    this.inFlightBytes = 0;
+  }
+};
+
 // src/runtime.ts
 var import_node_crypto = require("node:crypto");
 
@@ -26432,77 +26540,6 @@ var IntegrationClient = (0, import_grpc_js.makeGenericClientConstructor)(
 
 // src/channel.ts
 var import_grpc_js2 = __toESM(require_src3(), 1);
-
-// src/protocol.ts
-var PROTOCOL_VERSION = 1;
-var CAPABILITY_LIFECYCLE = "pi.lifecycle.v1";
-var MAX_HELLO_BYTES = 16 * 1024;
-var MAX_METADATA_BYTES = 8 * 1024;
-var MAX_MESSAGE_BYTES = 256 * 1024;
-var MAX_QUEUED_MESSAGES = 16;
-var MAX_QUEUED_BYTES = 256 * 1024;
-var BLOCKED_SEND_TIMEOUT_MS = 5e3;
-var HELLO_DEADLINE_MS = 5e3;
-var MAX_JOURNAL_RECORDS = 64;
-var RECONNECT_BASE_MS = 500;
-var RECONNECT_MAX_MS = 3e4;
-var RECONNECT_STABLE_MS = 3e4;
-var METADATA_TOKEN_KEY = "phi-pi-token";
-var METADATA_PANE_KEY = "phi-pi-pane";
-var METADATA_PROCESS_KEY = "phi-pi-process";
-
-// src/queue.ts
-var BoundedQueue = class {
-  items = [];
-  bytes = 0;
-  inFlight = 0;
-  inFlightBytes = 0;
-  get length() {
-    return this.items.length;
-  }
-  get queuedBytes() {
-    return this.bytes;
-  }
-  get outstanding() {
-    return this.items.length + this.inFlight;
-  }
-  get outstandingBytes() {
-    return this.bytes + this.inFlightBytes;
-  }
-  /** Try to enqueue. Returns false on overflow without mutating. */
-  tryEnqueue(msg) {
-    if (this.outstanding >= MAX_QUEUED_MESSAGES) return false;
-    if (this.outstandingBytes + msg.byteSize > MAX_QUEUED_BYTES)
-      return false;
-    this.items.push(msg);
-    this.bytes += msg.byteSize;
-    return true;
-  }
-  /** Mark the head as in-flight and return it, or undefined when empty. */
-  beginSend() {
-    const msg = this.items.shift();
-    if (msg === void 0) return void 0;
-    this.bytes -= msg.byteSize;
-    this.inFlight += 1;
-    this.inFlightBytes += msg.byteSize;
-    return msg;
-  }
-  /** Release one in-flight message after its send settles. */
-  endSend(msg) {
-    this.inFlight -= 1;
-    this.inFlightBytes -= msg.byteSize;
-    if (this.inFlight < 0) this.inFlight = 0;
-    if (this.inFlightBytes < 0) this.inFlightBytes = 0;
-  }
-  clear() {
-    this.items = [];
-    this.bytes = 0;
-    this.inFlight = 0;
-    this.inFlightBytes = 0;
-  }
-};
-
-// src/channel.ts
 var defaultClientFactory = (target, creds, options) => (
   // SAFETY: the generated client implements connect/cancel/close with
   // compatible signatures; the assertion only narrows to the used surface.
@@ -26526,6 +26563,7 @@ var BridgeChannel = class {
   acceptedWaiters = [];
   /** Open the stream, send Hello, and await Accepted or a status. */
   async connect(hello) {
+    parseTarget(this.creds.target);
     this.client = this.makeClient(
       this.creds.target,
       import_grpc_js2.ChannelCredentials.createInsecure(),
@@ -26964,9 +27002,10 @@ var Runtime = class {
     this.channel = channel;
     try {
       await channel.connect(this.hello());
-    } catch {
+    } catch (err) {
       channel.close();
       if (this.channel === channel) this.channel = null;
+      if (err instanceof InvalidTargetError) return;
       if (!this.shutdownRequested) this.scheduleRetry();
       return;
     } finally {

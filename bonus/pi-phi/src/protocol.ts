@@ -5,8 +5,6 @@ export const PROTOCOL_VERSION = 1;
 
 export const CAPABILITY_LIFECYCLE = 'pi.lifecycle.v1';
 
-export const MAX_HELLO_BYTES = 16 * 1024;
-export const MAX_METADATA_BYTES = 8 * 1024;
 export const MAX_MESSAGE_BYTES = 256 * 1024;
 export const MAX_QUEUED_MESSAGES = 16;
 export const MAX_QUEUED_BYTES = 256 * 1024;

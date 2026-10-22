@@ -27,8 +27,10 @@ describe('parseTarget', () => {
         ['credentials', 'unix://user@/tmp/bridge.sock'],
         ['authority', 'unix://authority/tmp/bridge.sock'],
         ['remote-pipe', String.raw`unix:\\.\pipe\other`],
+        ['remote-host', String.raw`unix:\\host\pipe\phi-pi-` + 'a'.repeat(32)],
         ['short-pipe', String.raw`unix:\\.\pipe\phi-pi-abc`],
         ['nonhex-pipe', String.raw`unix:\\.\pipe\phi-pi-` + 'zz'.repeat(16)],
+        ['passthrough', 'passthrough:///tmp/x'],
     ])('rejects %s', (_name, target) => {
         expect(() => parseTarget(target)).toThrow();
     });

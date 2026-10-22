@@ -4,6 +4,13 @@
 
 export type IpcTargetKind = 'unix' | 'windows-pipe';
 
+/**
+ * A target that can never become valid (wrong scheme, remote address,
+ * relative path). The runtime stops retrying on this error instead of
+ * reconnecting to a bad address forever.
+ */
+export class InvalidTargetError extends Error {}
+
 export interface ParsedTarget {
     kind: IpcTargetKind;
     /** Literal address after the "unix:" prefix. Spaces survive unchanged. */
@@ -20,32 +27,34 @@ function isHex(s: string): boolean {
 export function parseTarget(target: string): ParsedTarget {
     const prefix = 'unix:';
     if (!target.startsWith(prefix)) {
-        throw new Error('target must use unix: scheme');
+        throw new InvalidTargetError('target must use unix: scheme');
     }
     const rest = target.slice(prefix.length);
-    if (rest === '') throw new Error('target has no address');
-    if (rest.includes('\0')) throw new Error('target contains NUL');
+    if (rest === '') throw new InvalidTargetError('target has no address');
+    if (rest.includes('\0'))
+        throw new InvalidTargetError('target contains NUL');
     if (rest.includes('%'))
-        throw new Error('target must not use percent encoding');
+        throw new InvalidTargetError('target must not use percent encoding');
     if (rest.includes('@'))
-        throw new Error('target must not carry credentials');
+        throw new InvalidTargetError('target must not carry credentials');
     if (rest.includes('://'))
-        throw new Error('target must not carry an authority');
+        throw new InvalidTargetError('target must not carry an authority');
 
     if (rest.startsWith(PIPE_PREFIX)) {
         const name = rest.slice(PIPE_PREFIX.length);
-        if (name.length < 32) throw new Error('pipe name too short');
-        if (!isHex(name)) throw new Error('pipe name must be hex');
+        if (name.length < 32)
+            throw new InvalidTargetError('pipe name too short');
+        if (!isHex(name)) throw new InvalidTargetError('pipe name must be hex');
         return { kind: 'windows-pipe', path: rest };
     }
     if (rest.startsWith(String.raw`\\`)) {
-        throw new Error('remote pipe hosts are rejected');
+        throw new InvalidTargetError('remote pipe hosts are rejected');
     }
     if (!rest.startsWith('/')) {
-        throw new Error('unix socket path must be absolute');
+        throw new InvalidTargetError('unix socket path must be absolute');
     }
     if (rest.startsWith('//')) {
-        throw new Error('target must not carry an authority');
+        throw new InvalidTargetError('target must not carry an authority');
     }
     return { kind: 'unix', path: rest };
 }

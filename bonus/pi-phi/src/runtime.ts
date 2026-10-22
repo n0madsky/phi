@@ -18,6 +18,7 @@ import {
     StateSnapshot,
 } from './gen/bridge.js';
 import { BridgeChannel, type ChannelCreds } from './channel.js';
+import { InvalidTargetError } from './endpoint.js';
 import { PROTOCOL_VERSION } from './protocol.js';
 import { CAPABILITY_LIFECYCLE } from './protocol.js';
 import { MAX_JOURNAL_RECORDS } from './protocol.js';
@@ -395,9 +396,12 @@ export class Runtime {
         this.channel = channel;
         try {
             await channel.connect(this.hello());
-        } catch {
+        } catch (err) {
             channel.close();
             if (this.channel === channel) this.channel = null;
+            // A malformed target can never become valid: stop instead
+            // of reconnecting to a bad address for the session's life.
+            if (err instanceof InvalidTargetError) return;
             if (!this.shutdownRequested) this.scheduleRetry();
             return;
         } finally {

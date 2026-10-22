@@ -128,6 +128,24 @@ func TestEndpointLongRootFallsBack(t *testing.T) {
 	}
 }
 
+func TestEndpointSkipsRootTheClientWouldReject(t *testing.T) {
+	skipOnWindows(t)
+	// The client accepts a literal absolute path only. A root that
+	// forces a rejected shape must make the endpoint unavailable
+	// rather than publish a target the client refuses to dial.
+	for _, bad := range []string{"percent%20dir", "user@host", "x://y"} {
+		root := filepath.Join(t.TempDir(), bad)
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			t.Fatalf("seed root %q: %v", root, err)
+		}
+		ep, err := NewEndpointWithRoots([]string{root})
+		if err != ErrEndpointUnavailable {
+			ep.Cleanup()
+			t.Fatalf("root %q: err=%v, want ErrEndpointUnavailable", root, err)
+		}
+	}
+}
+
 func TestEndpointNoRootFits(t *testing.T) {
 	skipOnWindows(t)
 	longRoot := filepath.Join(os.TempDir(), strings.Repeat("l", 120))

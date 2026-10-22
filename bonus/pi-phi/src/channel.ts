@@ -15,6 +15,7 @@ import {
     type PhiToPi,
     PiToPhi,
 } from './gen/bridge.js';
+import { parseTarget } from './endpoint.js';
 import {
     BLOCKED_SEND_TIMEOUT_MS,
     HELLO_DEADLINE_MS,
@@ -83,6 +84,10 @@ export class BridgeChannel {
 
     /** Open the stream, send Hello, and await Accepted or a status. */
     async connect(hello: PiToPhi): Promise<Accepted> {
+        // Only server-generated local targets are dialable. A TCP or
+        // authority-shaped target must never reach the transport, so
+        // the check runs before the client exists.
+        parseTarget(this.creds.target);
         this.client = this.makeClient(
             this.creds.target,
             ChannelCredentials.createInsecure(),

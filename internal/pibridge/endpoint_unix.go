@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -55,6 +56,12 @@ func NewEndpointWithRoots(roots []string) (*Endpoint, error) {
 		if len(socket) > maxSocketPathBytes {
 			continue
 		}
+		if !publishableTarget(socket) {
+			// The client accepts a literal absolute path only. A root
+			// that forces a rejected shape makes the endpoint
+			// unavailable, never a target the client refuses.
+			continue
+		}
 		if err := os.Mkdir(dir, 0o700); err != nil {
 			// Collision or unwritable root: unavailable, never unlink.
 			continue
@@ -67,6 +74,16 @@ func NewEndpointWithRoots(roots []string) (*Endpoint, error) {
 		return ep, nil
 	}
 	return nil, ErrEndpointUnavailable
+}
+
+// publishableTarget reports whether the socket path can be published as a
+// client target. The client accepts a literal absolute path only: no
+// percent encoding, no credentials, no authority.
+func publishableTarget(socket string) bool {
+	return !strings.Contains(socket, "%") &&
+		!strings.Contains(socket, "@") &&
+		!strings.Contains(socket, "://") &&
+		!strings.HasPrefix(socket, "//")
 }
 
 // Listen opens the filesystem Unix-domain socket with mode 0600. It never

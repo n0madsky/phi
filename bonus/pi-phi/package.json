@@ -2,9 +2,9 @@
     "name": "@phi/pi-phi",
     "version": "0.1.0",
     "private": true,
-    "description": "Phi's maintained Pi integration extension: lifecycle events and separate session summaries over local IPC.",
+    "description": "Phi's maintained Pi integration extension: lifecycle events over local IPC.",
     "type": "module",
-    "main": "dist/extension.cjs",
+    "main": "dist/pi-phi-extension.cjs",
     "scripts": {
         "typecheck": "tsc -p tsconfig.json",
         "test": "vitest run -c vitest.config.mts",

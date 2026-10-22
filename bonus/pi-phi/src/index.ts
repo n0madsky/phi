@@ -5,7 +5,6 @@
 export {
     PROTOCOL_VERSION,
     CAPABILITY_LIFECYCLE,
-    MAX_HELLO_BYTES,
     MAX_MESSAGE_BYTES,
     MAX_QUEUED_MESSAGES,
     MAX_QUEUED_BYTES,
@@ -14,10 +13,8 @@ export {
     negotiateCapabilities,
     isKnownCapability,
 } from './protocol.js';
-export { parseTarget } from './endpoint.js';
+export { parseTarget, InvalidTargetError } from './endpoint.js';
 export type { IpcTargetKind, ParsedTarget } from './endpoint.js';
 export { BoundedQueue } from './queue.js';
 export type { SizedMessage } from './queue.js';
-export { createExtension } from './extension.js';
-
-export const PI_PHI_PACKAGE_VERSION = '0.1.0';
+export { createExtension, default } from './extension.js';

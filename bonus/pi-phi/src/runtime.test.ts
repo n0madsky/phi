@@ -7,6 +7,7 @@ import {
     RunOutcome,
 } from './gen/bridge.js';
 import { CAPABILITY_LIFECYCLE } from './protocol.js';
+import { InvalidTargetError } from './endpoint.js';
 import type { ChannelCreds, ChannelHooks } from './channel.js';
 import { type PiContextView, Runtime, type RuntimeChannel } from './runtime.js';
 
@@ -351,6 +352,27 @@ describe('Runtime reconnect', () => {
             expect(channels.length, `code ${code}`).toBe(1);
             rt.shutdown();
         }
+    });
+
+    it('stops retrying when the target can never be valid', async () => {
+        const channels: MockChannel[] = [];
+        const rt = new Runtime({
+            creds: CREDS,
+            generation: 1n,
+            backoffBaseMs: 5,
+            backoffMaxMs: 10,
+            makeChannel: (_c, hooks) => {
+                const ch = mockChannel();
+                ch.hooks = hooks;
+                ch.connectError = new InvalidTargetError('bad target');
+                channels.push(ch);
+                return ch;
+            },
+        });
+        rt.start(ctx());
+        await sleep(30);
+        expect(channels.length).toBe(1);
+        rt.shutdown();
     });
 
     it('reconnects after queue overflow instead of gapping the stream', async () => {
