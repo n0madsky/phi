@@ -8,8 +8,9 @@ import (
 
 // The canonical Pi extension runtime travels inside the Phi binary so
 // binary-only installations load the same artifact the source checkout
-// builds. Both build modes embed this file; a stale or missing asset
-// fails here at startup, never silently. Rebuild with pnpm build:pi-phi.
+// builds. Both build modes embed this file; a missing file fails the
+// build, while an empty or corrupt one fails here at startup, never
+// silently. Rebuild with pnpm build:pi-phi.
 //
 //go:embed bonus/pi-phi/dist/pi-phi-extension.cjs
 var piPhiRuntimeAsset []byte

@@ -365,7 +365,7 @@ func (s *Server) Connect(stream pibridgepb.Integration_ConnectServer) error {
 		return status.Error(codes.Canceled, "lease revoked")
 	}
 	oldPeer := l.peer
-	p := newPeer(gen, hello.GetSessionId(), caps, stream)
+	p := newPeer(gen, hello.GetSessionId(), stream)
 	l.peer = p
 	l.caps = l.caps[:0]
 	for c := range caps {
@@ -438,7 +438,7 @@ func (s *Server) Connect(stream pibridgepb.Integration_ConnectServer) error {
 }
 
 // detachPeer removes p from its lease when it is still the active peer.
-// Journal, last state, and pending commands are preserved for reconnect.
+// Journal and last state are preserved for reconnect.
 func (s *Server) detachPeer(l *lease, p *peer) {
 	l.mu.Lock()
 	if l.peer == p {
@@ -449,8 +449,7 @@ func (s *Server) detachPeer(l *lease, p *peer) {
 }
 
 // handleMessage validates and applies one Pi → Phi message. Protocol
-// violations close the stream with a gRPC status; stale command results
-// are counted and ignored without closing healthy streams.
+// violations close the stream with a gRPC status.
 func (s *Server) handleMessage(l *lease, p *peer, msg *pibridgepb.PiToPhi) error {
 	switch {
 	case msg.GetHello() != nil:

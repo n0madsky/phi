@@ -52,7 +52,7 @@ func acceptedMsg(n int) *pibridgepb.PhiToPi {
 
 func TestPeerQueueCountBound(t *testing.T) {
 	bs := newBlockingStream()
-	p := newPeer(1, "sess", map[string]bool{CapabilityLifecycle: true}, bs)
+	p := newPeer(1, "sess", bs)
 	go p.runWriter()
 	// Let the writer take the first message and block in Send.
 	if !p.send(acceptedMsg(4)) {
@@ -93,7 +93,7 @@ func TestPeerQueueCountBound(t *testing.T) {
 
 func TestPeerQueueByteBound(t *testing.T) {
 	bs := newBlockingStream()
-	p := newPeer(1, "sess", map[string]bool{}, bs)
+	p := newPeer(1, "sess", bs)
 	go p.runWriter()
 	if !p.send(acceptedMsg(4)) {
 		t.Fatal("first send rejected")
@@ -115,7 +115,7 @@ func TestPeerQueueByteBound(t *testing.T) {
 
 func TestPeerCloseIdempotent(t *testing.T) {
 	bs := newBlockingStream()
-	p := newPeer(1, "sess", map[string]bool{}, bs)
+	p := newPeer(1, "sess", bs)
 	p.closeWith(codes.Canceled, "first")
 	p.closeWith(codes.Internal, "second")
 	if err := p.closeErr(); status.Code(err) != codes.Canceled || !strings.Contains(err.Error(), "first") {

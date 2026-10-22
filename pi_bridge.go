@@ -295,13 +295,20 @@ type bridgeStateView struct {
 	caps        []string
 }
 
-// snapshot copies the retained view. The caller must hold b.mu.
+// snapshot copies the retained view. The caller must hold b.mu. The
+// running flag is copied by value so later updates never mutate a
+// published view.
 func (p *bridgePane) snapshot() bridgeStateView {
+	var running *bool
+	if p.lastRunning != nil {
+		r := *p.lastRunning
+		running = &r
+	}
 	return bridgeStateView{
 		hasRun:      p.hasRun,
 		lastRun:     p.lastRun,
 		lastOutcome: p.lastOutcome,
-		running:     p.lastRunning,
+		running:     running,
 		model:       p.lastModel,
 		caps:        append([]string(nil), p.lastCaps...),
 	}
@@ -374,7 +381,7 @@ func outcomeName(outcome pibridgepb.RunOutcome) string {
 // bridge record. Other panes get no frame. The retained last run lets
 // a reconnecting browser catch up on a settlement it never saw.
 func (b *Bridge) encodeAttach(snapshot pty.PTYInstanceSnapshot) []byte {
-	if b == nil || snapshot.Coder != "pi" {
+	if b == nil || !piBridgeForCoder(snapshot.Coder) {
 		return nil
 	}
 	b.mu.Lock()

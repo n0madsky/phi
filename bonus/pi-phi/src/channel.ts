@@ -201,9 +201,11 @@ export class BridgeChannel {
         this.writerActive = true;
         try {
             for (;;) {
+                // Check teardown before dequeuing: a frame taken past
+                // this point without its matching endSend would leak.
+                if (this.stream === null || this.closed) return;
                 const frame = this.queue.beginSend();
-                if (frame === undefined || this.stream === null || this.closed)
-                    return;
+                if (frame === undefined) return;
                 try {
                     await this.writeWithDrain(frame.msg);
                 } catch {

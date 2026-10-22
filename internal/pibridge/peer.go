@@ -27,7 +27,6 @@ type connectStream interface {
 type peer struct {
 	generation uint64
 	sessionID  string
-	caps       map[string]bool
 
 	stream connectStream
 
@@ -44,21 +43,15 @@ type peer struct {
 	writerDone chan struct{}
 }
 
-func newPeer(generation uint64, sessionID string, caps map[string]bool, stream connectStream) *peer {
+func newPeer(generation uint64, sessionID string, stream connectStream) *peer {
 	return &peer{
 		generation: generation,
 		sessionID:  sessionID,
-		caps:       caps,
 		stream:     stream,
 		sendCh:     make(chan *pibridgepb.PhiToPi, maxQueuedMessages),
 		done:       make(chan struct{}),
 		writerDone: make(chan struct{}),
 	}
-}
-
-// hasCapability reports whether the hello negotiation accepted name.
-func (p *peer) hasCapability(name string) bool {
-	return p.caps[name]
 }
 
 // send enqueues one outbound message. It returns false when the peer is

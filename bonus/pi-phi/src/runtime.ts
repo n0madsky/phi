@@ -403,6 +403,13 @@ export class Runtime {
         } finally {
             this.starting = false;
         }
+        if (this.shutdownRequested) {
+            // Shutdown landed mid-connect: release the stream the
+            // shutdown path already passed over.
+            channel.close();
+            if (this.channel === channel) this.channel = null;
+            return;
+        }
         // Acceptance starts the stability window; only a stable
         // connection resets the backoff on its later failure.
         this.connectedAt = Date.now();
