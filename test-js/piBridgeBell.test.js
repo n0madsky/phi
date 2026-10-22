@@ -213,8 +213,8 @@ describe('pi-bridge attach state', () => {
     });
 });
 
-describe('pi-bridge background policy', () => {
-    it('clears task state without a bell for the active visible tab', () => {
+describe('pi-bridge always-ring policy', () => {
+    it('rings for the active visible tab', () => {
         const { manager, showToast } = bridgeManager();
         manager.activePaneId = 'pane-1';
         const tab = piTab();
@@ -226,8 +226,8 @@ describe('pi-bridge background policy', () => {
             outcome: 'completed',
         });
         expect(tab.userTaskActive).toBe(false);
-        expect(tab.isAttention).toBe(false);
-        expect(showToast).not.toHaveBeenCalled();
+        expect(tab.isAttention).toBe(true);
+        expect(showToast).toHaveBeenCalledTimes(1);
         expect(tab._piBridgeLastRun).toBe('7');
     });
 
@@ -251,7 +251,7 @@ describe('pi-bridge background policy', () => {
     });
 });
 
-describe('heuristic suppression for provisioned panes', () => {
+describe('heuristic suppression for managed panes', () => {
     function idleManager(tab) {
         return {
             tabs: new Map([['pane-1', tab]]),
@@ -298,13 +298,17 @@ describe('heuristic suppression for provisioned panes', () => {
         expect(manager.triggerAttentionNotification).toHaveBeenCalledTimes(1);
     });
 
-    it.each(['managed', 'unavailable'])(
-        'suppresses heuristics for %s panes',
-        (state) => {
-            const tab = quietPiTab({ piBridge: { state } });
-            const manager = idleManager(tab);
-            TabManager.prototype.pollTerminalIdleAndNotifications.call(manager);
-            expect(manager.triggerAttentionNotification).not.toHaveBeenCalled();
-        },
-    );
+    it('suppresses heuristics for managed panes', () => {
+        const tab = quietPiTab({ piBridge: { state: 'managed' } });
+        const manager = idleManager(tab);
+        TabManager.prototype.pollTerminalIdleAndNotifications.call(manager);
+        expect(manager.triggerAttentionNotification).not.toHaveBeenCalled();
+    });
+
+    it('falls back to heuristics for unavailable panes', () => {
+        const tab = quietPiTab({ piBridge: { state: 'unavailable' } });
+        const manager = idleManager(tab);
+        TabManager.prototype.pollTerminalIdleAndNotifications.call(manager);
+        expect(manager.triggerAttentionNotification).toHaveBeenCalledTimes(1);
+    });
 });

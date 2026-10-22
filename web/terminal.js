@@ -7473,19 +7473,14 @@ export class TabManager {
         return typeof seen === 'string' && /^\d+$/.test(seen);
     }
 
-    // _ringPiBridgeBell marks a settled run done and, for background or
-    // hidden tabs only, raises attention exactly like the heuristic path
-    // (toast, chime, OS notification). An active visible tab shows the
-    // completion live, so it clears task state without a bell.
+    // _ringPiBridgeBell marks a settled run done and always raises
+    // attention (marker, toast, chime, OS notification), even for the
+    // active visible tab: a settlement is solid bridge signal, and
+    // completion is worth announcing while watching. The idle scan
+    // clears the marker for foreground tabs; the toast and chime stand.
     _ringPiBridgeBell(tabInfo) {
         tabInfo.userTaskActive = false;
         tabInfo.busyStartTime = null;
-        const isActiveAndVisible =
-            tabInfo.paneId === this.activePaneId && !document.hidden;
-        if (isActiveAndVisible) {
-            this.updateDocumentTitle();
-            return;
-        }
         tabInfo.isAttention = true;
         tabInfo.tabEl?.classList.add('has-attention');
         this.updateDocumentTitle();
@@ -10166,16 +10161,18 @@ export class TabManager {
                         isShell(tab.coder) ||
                         tab.coder === 'bash' ||
                         tab.coder === 'pwsh';
-                    // Bridge-provisioned Pi panes (managed or unavailable)
-                    // ring only on explicit settlements, never heuristically.
-                    const isBridgeProvisioned =
-                        tab.piBridge?.state === 'managed' ||
-                        tab.piBridge?.state === 'unavailable';
+                    // Bridge-managed Pi panes ring only on explicit
+                    // settlements: solid bridge signal replaces the
+                    // heuristic guess. Unavailable panes (provisioning
+                    // failed, no signals coming) keep the heuristic as a
+                    // fallback.
+                    const isBridgeActive =
+                        tab.piBridge?.state === 'managed';
 
                     if (
                         !isActiveAndVisible &&
                         !isShellTab &&
-                        !isBridgeProvisioned
+                        !isBridgeActive
                     ) {
                         const taskWasRunning =
                             tab.userTaskActive === true ||
