@@ -15,6 +15,7 @@ import (
 	"github.com/hypernewbie/phi/internal/pibridge"
 	pibridgepb "github.com/hypernewbie/phi/internal/pibridge/pb"
 	"github.com/hypernewbie/phi/pkg/pty"
+	"github.com/hypernewbie/phi/pkg/system"
 	"github.com/hypernewbie/phi/pkg/ws"
 )
 
@@ -137,64 +138,39 @@ func (b *Bridge) materialize() error {
 // keeps working across upgrades.
 const piBridgeStableDir = ".phi/pi-bridge"
 
-// compareDotVersion compares dot-separated numeric versions
-// ("0.1.0"). Non-numeric suffixes are ignored. Unparsable input
-// sorts below everything, so a corrupt installed version always
-// loses to a well-formed bundled one.
-func compareDotVersion(a, b string) int {
-	pa, oka := parseDotVersion(a)
-	pb, okb := parseDotVersion(b)
-	if !oka || !okb {
-		switch {
-		case oka:
-			return 1
-		case okb:
-			return -1
-		default:
-			return 0
-		}
+// compareStamp orders two "<version> <hash>" stamps by their leading
+// "X.Y.Z" version. The hash suffix marks the content, not the order.
+// A stamp without three leading numbers sorts below every well-formed
+// one, so a corrupt installed stamp always loses to the bundled one.
+func compareStamp(a, b string) int {
+	av, aok := stampVersion(a)
+	bv, bok := stampVersion(b)
+	switch {
+	case !aok && !bok:
+		return 0
+	case !aok:
+		return -1
+	case !bok:
+		return 1
 	}
-	for i := 0; i < len(pa) && i < len(pb); i++ {
-		if pa[i] != pb[i] {
-			if pa[i] < pb[i] {
+	for i := range av {
+		if av[i] != bv[i] {
+			if av[i] < bv[i] {
 				return -1
 			}
 			return 1
 		}
 	}
-	switch {
-	case len(pa) < len(pb):
-		return -1
-	case len(pa) > len(pb):
-		return 1
-	default:
-		return 0
-	}
+	return 0
 }
 
-func parseDotVersion(s string) ([]int, bool) {
-	var out []int
-	for _, part := range strings.Split(strings.TrimSpace(s), ".") {
-		num := ""
-		for _, r := range part {
-			if r < '0' || r > '9' {
-				break
-			}
-			num += string(r)
-		}
-		if num == "" {
-			return nil, false
-		}
-		n, err := strconv.Atoi(num)
-		if err != nil {
-			return nil, false
-		}
-		out = append(out, n)
+// stampVersion reads the leading "X.Y.Z" of a stamp.
+func stampVersion(stamp string) ([3]int, bool) {
+	var v [3]int
+	if _, err := fmt.Sscanf(strings.TrimSpace(stamp), "%d.%d.%d", &v[0], &v[1], &v[2]); err != nil {
+		return v, false
 	}
-	if len(out) == 0 {
-		return nil, false
-	}
-	return out, true
+	return v, true
 }
 
 // materializeStablePiBridge keeps the stable bundle copy current:
@@ -213,7 +189,7 @@ func materializeStablePiBridge() error {
 }
 
 func materializeStablePiBridgeAt(runtime func() ([]byte, error), version string) error {
-	if _, ok := parseDotVersion(version); !ok {
+	if _, ok := stampVersion(version); !ok {
 		return fmt.Errorf("pi-phi: bundled version %q unparsable", version)
 	}
 	home, err := os.UserHomeDir()
@@ -226,7 +202,7 @@ func materializeStablePiBridgeAt(runtime func() ([]byte, error), version string)
 		// The stamp carries the version and the content hash, so a
 		// matching stamp means a matching bundle. A newer installed
 		// version still wins and is left alone.
-		if compareDotVersion(version, installed) < 0 {
+		if compareStamp(version, installed) < 0 {
 			return nil
 		}
 		if installed == version {
@@ -242,40 +218,13 @@ func materializeStablePiBridgeAt(runtime func() ([]byte, error), version string)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("pi-phi: stable dir: %w", err)
 	}
-	if err := writeFileAtomic(filepath.Join(dir, piBridgeArtifactName), data, 0o600); err != nil {
+	if err := system.WriteFileAtomic(filepath.Join(dir, piBridgeArtifactName), data, 0o600); err != nil {
 		return err
 	}
 	// VERSION lands last: a crash between the two files leaves the
 	// old version gating a rewrite on the next start, never a new
 	// version atop old bytes.
-	return writeFileAtomic(filepath.Join(dir, "VERSION"), []byte(version+"\n"), 0o600)
-}
-
-func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
-	if err != nil {
-		return fmt.Errorf("pi-phi: temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("pi-phi: write temp: %w", err)
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("pi-phi: chmod temp: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("pi-phi: close temp: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("pi-phi: replace: %w", err)
-	}
-	return nil
+	return system.WriteFileAtomic(filepath.Join(dir, "VERSION"), []byte(version+"\n"), 0o600)
 }
 
 // Stop revokes every pane, stops the server, and releases owned paths.

@@ -358,7 +358,7 @@ func TestBridgeProvisionNoInject(t *testing.T) {
 	}
 }
 
-func TestCompareDotVersion(t *testing.T) {
+func TestCompareStamp(t *testing.T) {
 	cases := []struct {
 		a, b string
 		want int
@@ -366,16 +366,17 @@ func TestCompareDotVersion(t *testing.T) {
 		{"0.1.0", "0.1.0", 0},
 		{"0.2.0", "0.1.9", 1},
 		{"0.1.0", "0.1.1", -1},
-		{"1.0", "0.9.9", 1},
+		{"1.0.0", "0.9.9", 1},
 		{"0.1.0\n", "0.1.0", 0},
-		{"0.1.0-rc1", "0.1.0", 0},
+		{"0.1.0 hash-a", "0.1.0 hash-b", 0},
+		{"0.1.0 hash-a", "0.1.1 hash-b", -1},
 		{"garbage", "0.1.0", -1},
 		{"0.1.0", "garbage", 1},
 		{"", "", 0},
 	}
 	for _, c := range cases {
-		if got := compareDotVersion(c.a, c.b); got != c.want {
-			t.Fatalf("compareDotVersion(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		if got := compareStamp(c.a, c.b); got != c.want {
+			t.Fatalf("compareStamp(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
 		}
 	}
 }
