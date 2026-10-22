@@ -15,6 +15,14 @@ import (
 //go:embed bonus/pi-phi/dist/pi-phi-extension.cjs
 var piPhiRuntimeAsset []byte
 
+// The stamped bundle version travels alongside the runtime for the
+// stable-path gate: phi rewrites its stable copy only when this
+// version is newer than the installed one. Stamped by
+// scripts/pi-phi-build.mjs from the package version.
+//
+//go:embed bonus/pi-phi/dist/VERSION
+var piPhiVersionAsset string
+
 // piPhiRuntimeMarker is a stable bundle string that must survive
 // embedding. It trips on truncation or a wrong-file embed, not malice.
 var piPhiRuntimeMarker = []byte("PHI_PI_BRIDGE_ENDPOINT")

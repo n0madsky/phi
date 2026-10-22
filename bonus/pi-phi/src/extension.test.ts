@@ -140,6 +140,116 @@ describe('factory inertness', () => {
     });
 });
 
+describe('settings disable', () => {
+    // Real hosts: getSettings throws during factory load and works in
+    // event handlers (M7 runtime probe, both pinned versions).
+    function mockPiWithSettings(
+        settings: unknown,
+        opts: { throwInFactory?: boolean } = {},
+    ): {
+        pi: ExtensionAPI;
+        handlers: Map<string, (event: unknown, ctx: never) => unknown>;
+    } {
+        const { pi, handlers } = mockPi();
+        const surface = pi as unknown as Record<string, unknown>;
+        type AnyOn = (
+            event: string,
+            handler: (event: unknown, ctx: never) => unknown,
+        ) => () => void;
+        let factoryTime = true;
+        if (opts.throwInFactory) {
+            const innerOn = surface['on'] as AnyOn;
+            surface['on'] = (
+                event: string,
+                handler: (event: unknown, ctx: never) => unknown,
+            ) => {
+                // First handler registration ends factory time.
+                factoryTime = false;
+                return innerOn(event, handler);
+            };
+        } else {
+            factoryTime = false;
+        }
+        surface['getSettings'] = () => {
+            if (factoryTime) {
+                throw new Error(
+                    'Extension runtime not initialized. Action methods cannot be called during extension loading.',
+                );
+            }
+            return settings;
+        };
+        return { pi, handlers };
+    }
+
+    it('scrubs credentials and stays inert when disabled', () => {
+        setEnv();
+        const { pi, handlers } = mockPiWithSettings(
+            { phiBridge: { enabled: false } },
+            { throwInFactory: true },
+        );
+        const rec = recordingRuntime();
+        createExtension(pi, { makeRuntime: () => rec.runtime });
+        // Factory registers handlers; the gate runs at session_start.
+        expect(handlers.size).toBe(10);
+        handlers.get('session_start')!({}, mockCtx() as never);
+        expect(rec.calls).toEqual([]);
+        expect(readCredsFromEnv()).toBeNull();
+        // Later events stay inert.
+        handlers.get('agent_start')!({}, mockCtx() as never);
+        handlers.get('agent_settled')!(
+            { type: 'agent_settled' },
+            mockCtx() as never,
+        );
+        expect(rec.calls).toEqual([]);
+    });
+
+    it('disables a previously claimed runtime on session replacement', () => {
+        setEnv();
+        let settings: unknown = {};
+        const { pi, handlers } = mockPi();
+        (pi as unknown as Record<string, unknown>)['getSettings'] = () =>
+            settings;
+        const rec = recordingRuntime();
+        createExtension(pi, { makeRuntime: () => rec.runtime });
+        handlers.get('session_start')!({}, mockCtxWithSession('s1') as never);
+        expect(rec.calls).toEqual(['start']);
+        // Replacement session with the disable now visible: the
+        // claimed runtime is shut down and credentials are scrubbed.
+        settings = { phiBridge: { enabled: false } };
+        handlers.get('session_start')!({}, mockCtxWithSession('s2') as never);
+        expect(rec.calls).toEqual(['start', 'shutdown']);
+        expect(readCredsFromEnv()).toBeNull();
+    });
+
+    it('starts when enabled, missing, or unreadable', () => {
+        for (const settings of [
+            { phiBridge: { enabled: true } },
+            {},
+            { phiBridge: {} },
+            { phiBridge: null },
+            null,
+        ]) {
+            resetOwnerSlotForTest();
+            setEnv();
+            const { pi, handlers } = mockPiWithSettings(settings);
+            const rec = recordingRuntime();
+            createExtension(pi, { makeRuntime: () => rec.runtime });
+            handlers.get('session_start')!({}, mockCtx() as never);
+            expect(rec.calls).toEqual(['start']);
+        }
+        resetOwnerSlotForTest();
+        setEnv();
+        const { pi, handlers } = mockPi();
+        (pi as unknown as Record<string, unknown>)['getSettings'] = () => {
+            throw new Error('boom');
+        };
+        const rec = recordingRuntime();
+        createExtension(pi, { makeRuntime: () => rec.runtime });
+        handlers.get('session_start')!({}, mockCtx() as never);
+        expect(rec.calls).toEqual(['start']);
+    });
+});
+
 describe('owner guard', () => {
     it('first claimant owns; duplicate stays inert', () => {
         setEnv();

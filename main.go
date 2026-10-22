@@ -311,6 +311,7 @@ func main() {
 	http.HandleFunc("/api/cmd/batch-run", handleRunCommand)
 	http.HandleFunc("/api/config/fast-mode", handleFastMode)
 	http.HandleFunc("/api/config/pi-offline", handlePiOffline)
+	http.HandleFunc("/api/config/pi-bridge-no-inject", handlePiBridgeNoInject)
 	http.HandleFunc("/api/config/claude-dangerously-skip-permissions", handleClaudeDangerouslySkipPermissions)
 	http.HandleFunc("/api/config/agy-theme-ansi", handleAgyThemeAnsi)
 	http.HandleFunc("/api/config/auto-reconnect", handleAutoReconnect)

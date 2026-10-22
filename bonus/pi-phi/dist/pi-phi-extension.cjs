@@ -26634,9 +26634,9 @@ var BridgeChannel = class {
     this.writerActive = true;
     try {
       for (; ; ) {
+        if (this.stream === null || this.closed) return;
         const frame = this.queue.beginSend();
-        if (frame === void 0 || this.stream === null || this.closed)
-          return;
+        if (frame === void 0) return;
         try {
           await this.writeWithDrain(frame.msg);
         } catch {
@@ -26972,6 +26972,11 @@ var Runtime = class {
     } finally {
       this.starting = false;
     }
+    if (this.shutdownRequested) {
+      channel.close();
+      if (this.channel === channel) this.channel = null;
+      return;
+    }
     this.connectedAt = Date.now();
   }
   onServerMessage(_msg) {
@@ -27057,6 +27062,18 @@ function agentEndStopReason(event) {
 function isRecord(value) {
   return typeof value === "object" && value !== null;
 }
+function bridgeDisabled(pi) {
+  try {
+    const api = pi;
+    const settings = api.getSettings?.();
+    if (!isRecord(settings)) return false;
+    const section = settings["phiBridge"];
+    if (!isRecord(section)) return false;
+    return section["enabled"] === false;
+  } catch {
+    return false;
+  }
+}
 function createExtension(pi, deps = {}) {
   const envCreds = readCredsFromEnv();
   if (!envCreds && !ownerSlot().creds) return;
@@ -27066,6 +27083,17 @@ function createExtension(pi, deps = {}) {
   const make = deps.makeRuntime ?? ((c, g) => new Runtime({ creds: c, generation: g }));
   pi.on("session_start", (_event, ctx) => {
     const slot = ownerSlot();
+    if (bridgeDisabled(pi)) {
+      clearCredsFromEnv();
+      slot.creds = void 0;
+      if (runtime !== null) {
+        runtime.shutdown();
+        runtime = null;
+      }
+      slot.active = false;
+      claimed = false;
+      return;
+    }
     if (slot.active) {
       if (!claimed || runtime === null) return;
       let next = null;

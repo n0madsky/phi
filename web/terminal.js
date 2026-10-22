@@ -7428,6 +7428,11 @@ export class TabManager {
                   }
                 : {}),
         };
+        // running/last_run only arrive post-hello, so their first
+        // sight proves the bridge is live (not merely provisioned).
+        if (control.running !== undefined || control.last_run) {
+            tabInfo._piBridgeLive = true;
+        }
         if (
             control.last_run &&
             this._piBridgeRunIsNew(tabInfo, control.last_run)
@@ -7445,6 +7450,8 @@ export class TabManager {
     _acceptPiBridgeSettled(tabInfo, control) {
         if (!tabInfo || tabInfo.coder !== 'pi') return;
         if (!control.run) return;
+        // Settled frames only arrive post-hello: proof of liveness.
+        tabInfo._piBridgeLive = true;
         if (!this._piBridgeRunIsNew(tabInfo, control.run)) return;
         tabInfo._piBridgeLastRun = control.run;
         // A settlement ends the run, whatever the outcome.
@@ -7793,6 +7800,7 @@ export class TabManager {
                 // A restart provisions a fresh lease; drop bridge state.
                 tabInfo.piBridge = data.pi_bridge;
                 tabInfo._piBridgeLastRun = undefined;
+                tabInfo._piBridgeLive = undefined;
 
                 // Update DOM element references to synchronise new IDs
                 tabInfo.tabEl.setAttribute('data-pane-id', data.pane_id);
@@ -10162,12 +10170,15 @@ export class TabManager {
                         tab.coder === 'bash' ||
                         tab.coder === 'pwsh';
                     // Bridge-managed Pi panes ring only on explicit
-                    // settlements: solid bridge signal replaces the
-                    // heuristic guess. Unavailable panes (provisioning
-                    // failed, no signals coming) keep the heuristic as a
-                    // fallback.
+                    // settlements once the bridge is live: solid signal
+                    // replaces the heuristic guess. Managed-but-never-
+                    // connected panes (bridge disabled in Pi, manual
+                    // install missing, Pi crashed pre-hello) keep the
+                    // heuristic as a fallback, so a silent bridge never
+                    // means no signal at all. Unavailable panes likewise.
                     const isBridgeActive =
-                        tab.piBridge?.state === 'managed';
+                        tab.piBridge?.state === 'managed' &&
+                        tab._piBridgeLive === true;
 
                     if (
                         !isActiveAndVisible &&

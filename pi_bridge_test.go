@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -53,7 +54,7 @@ func TestBridgeProvisionCompleteRevoke(t *testing.T) {
 	}
 	defer b.Stop()
 
-	env, args, managed := b.Provision("pane-1")
+	env, args, managed := b.Provision("pane-1", true)
 	if !managed {
 		t.Fatal("provision not managed")
 	}
@@ -72,7 +73,7 @@ func TestBridgeProvisionCompleteRevoke(t *testing.T) {
 	// Second provision of the same pane is unmanaged and preserves
 	// the live record: no new lease, no clobbered state, and the
 	// first lease keeps its revoke path.
-	_, _, managed = b.Provision("pane-1")
+	_, _, managed = b.Provision("pane-1", true)
 	if managed {
 		t.Fatal("double provision managed")
 	}
@@ -106,7 +107,7 @@ func TestBridgeMissingArtifactProvisionsUnavailable(t *testing.T) {
 	defer b.Stop()
 	b.artifact = "" // simulate materialize failure after startup
 	b.reason = "runtime unavailable"
-	env, args, managed := b.Provision("pane-1")
+	env, args, managed := b.Provision("pane-1", true)
 	if managed || env != nil || args != nil {
 		t.Fatalf("missing artifact provisioned: managed=%v env=%v args=%v", managed, env, args)
 	}
@@ -121,7 +122,7 @@ func TestBridgeMissingArtifactProvisionsUnavailable(t *testing.T) {
 
 func TestBridgeNilSafe(t *testing.T) {
 	var b *Bridge
-	if _, _, managed := b.Provision("pane-1"); managed {
+	if _, _, managed := b.Provision("pane-1", true); managed {
 		t.Fatal("nil bridge provisioned")
 	}
 	b.Complete("pane-1")
@@ -167,7 +168,7 @@ func TestBridgeSettlementNotifiesHub(t *testing.T) {
 	}
 	defer b.Stop()
 
-	env, _, managed := b.Provision("pane-1")
+	env, _, managed := b.Provision("pane-1", true)
 	if !managed {
 		t.Fatal("provision not managed")
 	}
@@ -267,7 +268,7 @@ func TestBridgeStaleSettlementDropped(t *testing.T) {
 	}
 	defer b.Stop()
 
-	env, _, _ := b.Provision("pane-1")
+	env, _, _ := b.Provision("pane-1", true)
 	client := &ws.Client{Send: make(chan []byte, 8)}
 	hub.AttachHot("pane-1", client)
 	<-client.Send
@@ -295,7 +296,7 @@ func TestBridgeAttachEncoding(t *testing.T) {
 	if got := b.encodeAttach(pty.PTYInstanceSnapshot{ID: "unknown", Coder: "pi"}); got != nil {
 		t.Fatalf("unknown pane attach encoded: %s", got)
 	}
-	env, _, _ := b.Provision("pane-1")
+	env, _, _ := b.Provision("pane-1", true)
 	payload := b.encodeAttach(pty.PTYInstanceSnapshot{ID: "pane-1", Coder: "pi"})
 	var view map[string]string
 	if err := json.Unmarshal(payload, &view); err != nil {
@@ -323,7 +324,7 @@ func TestBridgeSnapshotCopiesRunningFlag(t *testing.T) {
 	}
 	defer b.Stop()
 
-	env, _, _ := b.Provision("pane-1")
+	env, _, _ := b.Provision("pane-1", true)
 	b.onState("pane-1", env[piBridgeEnvProcess], true, "p/m", []string{"pi.lifecycle.v1"})
 	b.mu.Lock()
 	p := b.panes["pane-1"]
@@ -333,5 +334,115 @@ func TestBridgeSnapshotCopiesRunningFlag(t *testing.T) {
 	b.mu.Unlock()
 	if view.running == nil || *view.running != true {
 		t.Fatal("published snapshot shares the live running flag")
+	}
+}
+
+func TestBridgeProvisionNoInject(t *testing.T) {
+	b := startPiBridge(testBridgeHub())
+	if b == nil {
+		t.Fatal("bridge did not start")
+	}
+	defer b.Stop()
+
+	// Manual install: the lease and credentials exist, but no
+	// --extension args are returned for the spawn.
+	env, args, managed := b.Provision("pane-1", false)
+	if !managed {
+		t.Fatal("provision not managed")
+	}
+	if env[piBridgeEnvToken] == "" || env[piBridgeEnvProcess] == "" {
+		t.Fatal("manual provision lacks credentials")
+	}
+	if len(args) != 0 {
+		t.Fatalf("no-inject provision returned args %v", args)
+	}
+}
+
+func TestCompareDotVersion(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"0.1.0", "0.1.0", 0},
+		{"0.2.0", "0.1.9", 1},
+		{"0.1.0", "0.1.1", -1},
+		{"1.0", "0.9.9", 1},
+		{"0.1.0\n", "0.1.0", 0},
+		{"0.1.0-rc1", "0.1.0", 0},
+		{"garbage", "0.1.0", -1},
+		{"0.1.0", "garbage", 1},
+		{"", "", 0},
+	}
+	for _, c := range cases {
+		if got := compareDotVersion(c.a, c.b); got != c.want {
+			t.Fatalf("compareDotVersion(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+func TestMaterializeStablePiBridge(t *testing.T) {
+	home := withTempHome(t)
+	stub := func() ([]byte, error) { return []byte("bundle-bytes"), nil }
+	stableFile := func() string {
+		return filepath.Join(home, piBridgeStableDir, piBridgeArtifactName)
+	}
+	stableVersion := func() string {
+		raw, err := os.ReadFile(filepath.Join(home, piBridgeStableDir, "VERSION"))
+		if err != nil {
+			t.Fatalf("read stable VERSION: %v", err)
+		}
+		return strings.TrimSpace(string(raw))
+	}
+
+	// Fresh install writes bundle and version.
+	if err := materializeStablePiBridgeAt(stub, "0.1.0"); err != nil {
+		t.Fatalf("fresh install: %v", err)
+	}
+	if raw, _ := os.ReadFile(stableFile()); string(raw) != "bundle-bytes" {
+		t.Fatal("stable bundle missing or wrong")
+	}
+	if stableVersion() != "0.1.0" {
+		t.Fatal("stable version missing or wrong")
+	}
+
+	// Older installed version is replaced.
+	newer := func() ([]byte, error) { return []byte("bundle-v2"), nil }
+	if err := materializeStablePiBridgeAt(newer, "0.2.0"); err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	if raw, _ := os.ReadFile(stableFile()); string(raw) != "bundle-v2" {
+		t.Fatal("upgrade did not replace bundle")
+	}
+	if stableVersion() != "0.2.0" {
+		t.Fatal("upgrade did not replace version")
+	}
+
+	// Newer installed version is left alone, byte for byte.
+	before, _ := os.ReadFile(stableFile())
+	if err := materializeStablePiBridgeAt(stub, "0.1.0"); err != nil {
+		t.Fatalf("downgrade guard: %v", err)
+	}
+	after, _ := os.ReadFile(stableFile())
+	if string(before) != string(after) || stableVersion() != "0.2.0" {
+		t.Fatal("newer install was clobbered")
+	}
+
+	// Corrupt installed version loses to a well-formed bundled one.
+	if err := os.WriteFile(filepath.Join(home, piBridgeStableDir, "VERSION"), []byte("garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := materializeStablePiBridgeAt(newer, "0.2.0"); err != nil {
+		t.Fatalf("corrupt recovery: %v", err)
+	}
+	if stableVersion() != "0.2.0" {
+		t.Fatal("corrupt version not replaced")
+	}
+
+	// Unparsable bundled version fails loud without touching the install.
+	if err := materializeStablePiBridgeAt(stub, "garbage"); err == nil {
+		t.Fatal("unparsable bundled version accepted")
+	}
+	if stableVersion() != "0.2.0" {
+		t.Fatal("failed upgrade clobbered the install")
 	}
 }

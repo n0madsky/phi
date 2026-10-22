@@ -102,6 +102,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
+/**
+ * True when the user disabled the Phi bridge in Pi settings
+ * (`phiBridge: { enabled: false }`). Missing settings API, missing
+ * section, or any read failure means enabled: the bridge must not
+ * silently die on hosts or settings it does not understand.
+ *
+ * Callable only from event handlers: during factory load `getSettings`
+ * is a stub that throws "Extension runtime not initialized" on both
+ * pinned hosts (verified by the M7 runtime probe), so a factory-time
+ * check can never observe the disable.
+ */
+function bridgeDisabled(pi: ExtensionAPI): boolean {
+    try {
+        // SAFETY: getSettings exists in the pinned types but is only
+        // callable after runtime bind; the optional call stays safe on
+        // every version, and any failure means enabled.
+        const api = pi as unknown as { getSettings?: () => unknown };
+        const settings = api.getSettings?.();
+        if (!isRecord(settings)) return false;
+        const section = settings['phiBridge'];
+        if (!isRecord(section)) return false;
+        return section['enabled'] === false;
+    } catch {
+        return false;
+    }
+}
+
 /** Narrow runtime surface the factory needs; Runtime satisfies it. */
 export interface FactoryRuntime {
     start(ctx: PiContextView): void;
@@ -142,6 +169,20 @@ export function createExtension(
 
     pi.on('session_start', (_event, ctx) => {
         const slot = ownerSlot();
+        if (bridgeDisabled(pi)) {
+            // Disabled in Pi settings: scrub every credential copy and
+            // stay inert. Checked here, not in the factory, because
+            // getSettings is not callable until the runtime is bound.
+            clearCredsFromEnv();
+            slot.creds = undefined;
+            if (runtime !== null) {
+                runtime.shutdown();
+                runtime = null;
+            }
+            slot.active = false;
+            claimed = false;
+            return;
+        }
         if (slot.active) {
             if (!claimed || runtime === null) return;
             // A replacement session on our claimed runtime: read its

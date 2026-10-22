@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -95,6 +98,11 @@ func startPiBridge(hub *ws.Hub) *Bridge {
 		b.reason = "runtime unavailable"
 		log.Printf("[pi-bridge] %v, launches proceed unmanaged: %v", b.reason, err)
 	}
+	// The stable copy serves manual installs; its failure never
+	// affects injection, so it only logs.
+	if err := materializeStablePiBridge(); err != nil {
+		log.Printf("[pi-bridge] stable copy unavailable: %v", err)
+	}
 	b.server.SetOnSettled(b.onSettled)
 	b.server.SetOnState(b.onState)
 	hub.SetBridgeAttach(b.encodeAttach)
@@ -122,6 +130,139 @@ func (b *Bridge) materialize() error {
 	return nil
 }
 
+// piBridgeStableDir is the phi-owned directory holding the stable
+// bridge bundle copy for manual Pi installs. Unlike the endpoint
+// copy, this path survives restarts, so a settings file-path entry
+// keeps working across upgrades.
+const piBridgeStableDir = ".phi/pi-bridge"
+
+// compareDotVersion compares dot-separated numeric versions
+// ("0.1.0"). Non-numeric suffixes are ignored. Unparsable input
+// sorts below everything, so a corrupt installed version always
+// loses to a well-formed bundled one.
+func compareDotVersion(a, b string) int {
+	pa, oka := parseDotVersion(a)
+	pb, okb := parseDotVersion(b)
+	if !oka || !okb {
+		switch {
+		case oka:
+			return 1
+		case okb:
+			return -1
+		default:
+			return 0
+		}
+	}
+	for i := 0; i < len(pa) && i < len(pb); i++ {
+		if pa[i] != pb[i] {
+			if pa[i] < pb[i] {
+				return -1
+			}
+			return 1
+		}
+	}
+	switch {
+	case len(pa) < len(pb):
+		return -1
+	case len(pa) > len(pb):
+		return 1
+	default:
+		return 0
+	}
+}
+
+func parseDotVersion(s string) ([]int, bool) {
+	var out []int
+	for _, part := range strings.Split(strings.TrimSpace(s), ".") {
+		num := ""
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				break
+			}
+			num += string(r)
+		}
+		if num == "" {
+			return nil, false
+		}
+		n, err := strconv.Atoi(num)
+		if err != nil {
+			return nil, false
+		}
+		out = append(out, n)
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
+}
+
+// materializeStablePiBridge keeps the stable bundle copy current:
+// it rewrites the directory only when the embedded version is
+// newer than the installed one, and installs fresh when absent.
+// An up-to-date copy costs one small file read per phi start.
+func materializeStablePiBridge() error {
+	return materializeStablePiBridgeAt(piPhiRuntime, strings.TrimSpace(piPhiVersionAsset))
+}
+
+func materializeStablePiBridgeAt(runtime func() ([]byte, error), version string) error {
+	if _, ok := parseDotVersion(version); !ok {
+		return fmt.Errorf("pi-phi: bundled version %q unparsable", version)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("pi-phi: home: %w", err)
+	}
+	dir := filepath.Join(home, piBridgeStableDir)
+	if raw, err := os.ReadFile(filepath.Join(dir, "VERSION")); err == nil {
+		if compareDotVersion(version, strings.TrimSpace(string(raw))) <= 0 {
+			return nil
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("pi-phi: read stable version: %w", err)
+	}
+	data, err := runtime()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("pi-phi: stable dir: %w", err)
+	}
+	if err := writeFileAtomic(filepath.Join(dir, piBridgeArtifactName), data, 0o600); err != nil {
+		return err
+	}
+	// VERSION lands last: a crash between the two files leaves the
+	// old version gating a rewrite on the next start, never a new
+	// version atop old bytes.
+	return writeFileAtomic(filepath.Join(dir, "VERSION"), []byte(version+"\n"), 0o600)
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return fmt.Errorf("pi-phi: temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("pi-phi: write temp: %w", err)
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("pi-phi: chmod temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("pi-phi: close temp: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("pi-phi: replace: %w", err)
+	}
+	return nil
+}
+
 // Stop revokes every pane, stops the server, and releases owned paths.
 func (b *Bridge) Stop() {
 	if b == nil {
@@ -144,10 +285,12 @@ func (b *Bridge) Stop() {
 }
 
 // Provision registers a pending lease for a pane before spawn. It
-// returns child env overrides and extension args. When managed is
+// returns child env overrides and extension args. When inject is
+// false (manual install), the lease and credentials are still
+// provisioned but no --extension args are returned. When managed is
 // false the caller launches normally without bridge injection, and
 // the pane is recorded unavailable with a nonsecret reason.
-func (b *Bridge) Provision(paneID string) (env map[string]string, args []string, managed bool) {
+func (b *Bridge) Provision(paneID string, inject bool) (env map[string]string, args []string, managed bool) {
 	if b == nil {
 		return nil, nil, false
 	}
@@ -178,12 +321,16 @@ func (b *Bridge) Provision(paneID string) (env map[string]string, args []string,
 		return fail("lease unavailable")
 	}
 	b.panes[paneID] = &bridgePane{processID: processID, managed: true}
-	return map[string]string{
+	env = map[string]string{
 		piBridgeEnvTarget:  b.endpoint.Target,
 		piBridgeEnvPane:    paneID,
 		piBridgeEnvProcess: processID,
 		piBridgeEnvToken:   token,
-	}, []string{"--extension", b.artifact}, true
+	}
+	if inject {
+		args = []string{"--extension", b.artifact}
+	}
+	return env, args, true
 }
 
 // Complete marks a provisioned lease live after successful spawn.

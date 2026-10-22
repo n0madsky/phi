@@ -49,7 +49,7 @@ func spawnTerminal(ctx context.Context, c coders.Coder, req SpawnRequest, cfg Co
 			opts.ID = pty.GenerateID()
 		}
 		var managed bool
-		bridgeEnv, bridgeExtArgs, managed = piBridge.Provision(opts.ID)
+		bridgeEnv, bridgeExtArgs, managed = piBridge.Provision(opts.ID, !cfg.PiBridgeNoInject)
 		_ = managed // recorded; the launch proceeds on either path
 	}
 	revokeBridge := func() {

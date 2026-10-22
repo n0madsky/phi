@@ -22,6 +22,34 @@ Only type imports reference the Pi package from the bundle, so the
 bundle carries no Pi runtime code. See `PROTOCOL.md` for the wire
 protocol, capabilities, and bounds.
 
+## Toggles and manual install
+
+Two switches, one per side. Defaults bridge every phi-spawned Pi.
+
+- Phi side: Settings → "Skip Phi bridge injection for pi". Phi
+  still provisions the lease and child credentials, but omits
+  `--extension`. For users who install the extension themselves.
+- Pi side: `"phiBridge": { "enabled": false }` in Pi settings.
+  The extension scrubs provisioned credentials and stays inert,
+  injected or installed. Takes effect on next Pi start.
+
+Manual install: phi keeps a stable copy at
+`~/.phi/pi-bridge/phi-phi-extension.cjs` (rewritten only when the
+bundled version is newer), and registers this file path in Pi
+settings so no copy can go stale:
+
+```json
+{
+  "packages": ["/Users/you/.phi/pi-bridge/phi-phi-extension.cjs"]
+}
+```
+
+(An explicit file path loads `.cjs`; only the extensions-directory
+scan is limited to `.js`/`.ts`.) A managed pane whose bridge never
+connects — disabled in Pi, manual install missing, or a pre-hello
+crash — keeps the output heuristic, so a silent bridge never means
+no completion signal at all.
+
 ## Commands
 
 From the Phi checkout:
