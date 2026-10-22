@@ -445,4 +445,40 @@ func TestMaterializeStablePiBridge(t *testing.T) {
 	if stableVersion() != "0.2.0" {
 		t.Fatal("failed upgrade clobbered the install")
 	}
+
+	// Same version, new content: the stamp decides, not the version
+	// number. A rebuilt bundle must not sit stale behind an equal
+	// version.
+	if err := materializeStablePiBridgeAt(stub, "0.2.0 hash-b"); err != nil {
+		t.Fatalf("same-version refresh: %v", err)
+	}
+	if raw, _ := os.ReadFile(stableFile()); string(raw) != "bundle-bytes" {
+		t.Fatal("same-version rebuild did not replace the bundle")
+	}
+	if stableVersion() != "0.2.0 hash-b" {
+		t.Fatalf("same-version rebuild did not update the stamp: %q", stableVersion())
+	}
+
+	// Identical stamp: nothing is written again.
+	if err := materializeStablePiBridgeAt(newer, "0.2.0 hash-b"); err != nil {
+		t.Fatalf("identical stamp: %v", err)
+	}
+	if raw, _ := os.ReadFile(stableFile()); string(raw) != "bundle-bytes" {
+		t.Fatal("identical stamp replaced the bundle")
+	}
+	if stableVersion() != "0.2.0 hash-b" {
+		t.Fatal("identical stamp changed the version file")
+	}
+
+	// A newer installed version still wins over an older bundled one,
+	// even when the stamps differ.
+	if err := materializeStablePiBridgeAt(stub, "0.1.0 hash-c"); err != nil {
+		t.Fatalf("newer install guard: %v", err)
+	}
+	if raw, _ := os.ReadFile(stableFile()); string(raw) != "bundle-bytes" {
+		t.Fatal("newer install was clobbered")
+	}
+	if stableVersion() != "0.2.0 hash-b" {
+		t.Fatal("newer install lost its version")
+	}
 }

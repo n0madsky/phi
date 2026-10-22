@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"testing"
 
 	"github.com/hypernewbie/phi/internal/pibridge"
 	pibridgepb "github.com/hypernewbie/phi/internal/pibridge/pb"
@@ -197,10 +198,17 @@ func parseDotVersion(s string) ([]int, bool) {
 }
 
 // materializeStablePiBridge keeps the stable bundle copy current:
-// it rewrites the directory only when the embedded version is
-// newer than the installed one, and installs fresh when absent.
-// An up-to-date copy costs one small file read per phi start.
+// it rewrites the directory only when the embedded stamp is newer
+// than the installed one, or when the stamps differ at the same
+// version (new content, same version number). An up-to-date copy
+// costs one small file read per phi start.
 func materializeStablePiBridge() error {
+	if testing.Testing() {
+		// Tests cover this through materializeStablePiBridgeAt with
+		// a temp home. The real home must stay untouched: the repo
+		// isolates tests from ~/.phi the same way (see config.go).
+		return nil
+	}
 	return materializeStablePiBridgeAt(piPhiRuntime, strings.TrimSpace(piPhiVersionAsset))
 }
 
@@ -214,7 +222,14 @@ func materializeStablePiBridgeAt(runtime func() ([]byte, error), version string)
 	}
 	dir := filepath.Join(home, piBridgeStableDir)
 	if raw, err := os.ReadFile(filepath.Join(dir, "VERSION")); err == nil {
-		if compareDotVersion(version, strings.TrimSpace(string(raw))) <= 0 {
+		installed := strings.TrimSpace(string(raw))
+		// The stamp carries the version and the content hash, so a
+		// matching stamp means a matching bundle. A newer installed
+		// version still wins and is left alone.
+		if compareDotVersion(version, installed) < 0 {
+			return nil
+		}
+		if installed == version {
 			return nil
 		}
 	} else if !os.IsNotExist(err) {

@@ -4,6 +4,7 @@
 // only Node.js builtins stay external. Output is deterministic and
 // committed: bonus/pi-phi/dist/pi-phi-extension.cjs plus dist/NOTICES.txt.
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { builtinModules } from 'node:module';
 import {
     existsSync,
@@ -147,8 +148,10 @@ console.log(
 
 // VERSION pins the bundle for phi's stable-path gating: the Go side
 // embeds this file next to the bundle and rewrites the stable copy
-// only when the embedded version is newer. Single source is the
-// package version; a missing or unparsable version fails the build.
+// when the stamp differs. The stamp carries the package version AND
+// the bundle hash, so a bundle change refreshes the stable copy even
+// when the version number does not move. Single source is the package
+// version; a missing or unparsable version fails the build.
 let pkgVersion;
 try {
     pkgVersion = JSON.parse(
@@ -162,5 +165,10 @@ if (typeof pkgVersion !== 'string' || !/^\d+\.\d+\.\d+/.test(pkgVersion)) {
     console.error(`unparsable pi-phi package version: ${pkgVersion}`);
     process.exit(1);
 }
-writeFileSync(join(distDir, 'VERSION'), `${pkgVersion}\n`);
-console.log(`pi-phi version stamped: dist/VERSION (${pkgVersion})`);
+const bundleHash = createHash('sha256')
+    .update(readFileSync(join(distDir, 'pi-phi-extension.cjs')))
+    .digest('hex');
+writeFileSync(join(distDir, 'VERSION'), `${pkgVersion} ${bundleHash}\n`);
+console.log(
+    `pi-phi version stamped: dist/VERSION (${pkgVersion} ${bundleHash.slice(0, 12)})`,
+);
