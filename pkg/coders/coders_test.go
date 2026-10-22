@@ -714,3 +714,22 @@ func TestResolveLaunch_ExtensionArgsWindowsQuoting(t *testing.T) {
 		t.Fatalf("windows wrap lost extension quoting: %v", plan.Args)
 	}
 }
+
+func TestResolveLaunch_ExtensionArgsWindowsSpacesBeforeTerminator(t *testing.T) {
+	c := Coder{ID: "pi", Command: "pi", Args: []string{"--print", "--", "do the thing"}}
+	plan, err := ResolveLaunch(c, SpawnRequest{ExtensionArgs: []string{"--extension", `C:\phi pi\ext.cjs`}}, LaunchOptions{PlatformWindows: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Owned flags stay ahead of the terminator and the spaced path
+	// survives the PowerShell wrap as one quoted argument.
+	joined := strings.Join(plan.Args, " ")
+	extIdx := strings.Index(joined, "--extension")
+	termIdx := strings.Index(joined, "'--'")
+	if extIdx < 0 || termIdx < 0 || extIdx > termIdx {
+		t.Fatalf("windows wrap misordered extension vs terminator: %v", plan.Args)
+	}
+	if !strings.Contains(joined, "phi pi") {
+		t.Fatalf("windows wrap lost spaced path: %v", plan.Args)
+	}
+}

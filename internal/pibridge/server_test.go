@@ -83,8 +83,8 @@ func testHello(pane, proc string, gen uint64, caps ...string) *pibridgepb.PiToPh
 		PaneId: pane, ProcessId: proc, RuntimeGeneration: gen,
 		Payload: &pibridgepb.PiToPhi_Hello{
 			Hello: &pibridgepb.Hello{
-				ProtocolVersion: ProtocolVersion, PackageVersion: "0.1.0", HostVersion: "1.3.0",
-				SessionId: "sess", RuntimeId: "rt", Capabilities: caps,
+				ProtocolVersion: ProtocolVersion,
+				SessionId:       "sess", RuntimeId: "rt", Capabilities: caps,
 				CurrentState: &pibridgepb.StateSnapshot{
 					State:     pibridgepb.LogicalState_LOGICAL_STATE_IDLE,
 					SessionId: "sess", LeafId: "leaf",
@@ -182,14 +182,14 @@ func TestHelloLifecycleHandshake(t *testing.T) {
 	s.Complete(proc)
 	stream, cancel := openStream(t, sock, "pane-hi", proc, token)
 	defer cancel()
-	if err := stream.Send(testHello("pane-hi", proc, 1, CapabilityLifecycle, CapabilitySummary)); err != nil {
+	if err := stream.Send(testHello("pane-hi", proc, 1, CapabilityLifecycle)); err != nil {
 		t.Fatalf("send hello: %v", err)
 	}
 	acc := recvAccepted(t, stream)
 	if acc.GetProtocolVersion() != ProtocolVersion {
 		t.Fatalf("accepted version %d", acc.GetProtocolVersion())
 	}
-	if len(acc.GetCapabilities()) != 2 {
+	if len(acc.GetCapabilities()) != 1 || acc.GetCapabilities()[0] != CapabilityLifecycle {
 		t.Fatalf("accepted caps %v", acc.GetCapabilities())
 	}
 	// Lifecycle events are retained without closing the stream.
@@ -299,285 +299,51 @@ func TestReconnectReplacesStreamAtomically(t *testing.T) {
 	if status.Code(err) != codes.Canceled {
 		t.Fatalf("old stream code=%v, want Canceled", status.Code(err))
 	}
-	active, _, _ := s.Stats()
+	active, _ := s.Stats()
 	if active != 1 {
 		t.Fatalf("active streams %d, want 1", active)
 	}
 }
 
-func TestSummarizeCorrelation(t *testing.T) {
+func TestSameGenerationReconnectMergesJournal(t *testing.T) {
 	s, sock, cleanup := testServer(t)
 	defer cleanup()
-	proc, token, err := s.RegisterPending("pane-sum")
+	proc, token, err := s.RegisterPending("pane-merge")
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
 	s.Complete(proc)
-	stream, cancel := openStream(t, sock, "pane-sum", proc, token)
-	defer cancel()
-	if err := stream.Send(testHello("pane-sum", proc, 1, CapabilityLifecycle, CapabilitySummary)); err != nil {
-		t.Fatalf("hello: %v", err)
+	first, cancelFirst := openStream(t, sock, "pane-merge", proc, token)
+	defer cancelFirst()
+	if err := first.Send(testHello("pane-merge", proc, 1, CapabilityLifecycle)); err != nil {
+		t.Fatalf("send: %v", err)
 	}
-	recvAccepted(t, stream)
-	id, err := s.Summarize(proc, "sess", "leaf", &pibridgepb.ModelSnapshot{Provider: "p", Model: "m"}, 0, 5*time.Second)
-	if err != nil {
-		t.Fatalf("Summarize: %v", err)
+	recvAccepted(t, first)
+	if err := first.Send(&pibridgepb.PiToPhi{
+		PaneId: "pane-merge", ProcessId: proc, RuntimeGeneration: 1,
+		Payload: &pibridgepb.PiToPhi_AgentStarted{AgentStarted: &pibridgepb.AgentStarted{EventSequence: 1, RunId: 1}},
+	}); err != nil {
+		t.Fatalf("send started: %v", err)
 	}
-	if id == 0 {
-		t.Fatal("zero request id allocated")
+	// Reconnect with one offline-recorded edge: the duplicate start
+	// is ignored and the new settlement merges into the journal.
+	second, cancelSecond := openStream(t, sock, "pane-merge", proc, token)
+	defer cancelSecond()
+	hello := testHello("pane-merge", proc, 1, CapabilityLifecycle)
+	hello.GetHello().GetCurrentState().Journal = []*pibridgepb.LifecycleRecord{
+		{EventSequence: 1, RunId: 1},
+		{EventSequence: 2, RunId: 1, Settled: true, Outcome: pibridgepb.RunOutcome_RUN_OUTCOME_COMPLETED},
 	}
-	// Client receives Summarize and replies with unicode + large ids.
-	msg, err := stream.Recv()
-	if err != nil {
-		t.Fatalf("recv summarize: %v", err)
+	if err := second.Send(hello); err != nil {
+		t.Fatalf("reconnect send: %v", err)
 	}
-	sum := msg.GetSummarize()
-	if sum == nil || sum.GetRequestId() != id {
-		t.Fatalf("expected summarize %d, got %+v", id, msg.GetPayload())
+	recvAccepted(t, second)
+	view, ok := s.PaneState(proc)
+	if !ok {
+		t.Fatal("lease missing after reconnect")
 	}
-	bigRun := uint64(9007199254740993) // 2^53+1, beyond JS safe range
-	text := "Synthetic summary ↔ünicode—done ✓"
-	reply := &pibridgepb.PiToPhi{
-		PaneId: "pane-sum", ProcessId: proc, RuntimeGeneration: 1,
-		Payload: &pibridgepb.PiToPhi_SummaryResult{
-			SummaryResult: &pibridgepb.SummaryResult{
-				RequestId: id, SessionId: "sess", LeafId: "leaf", Text: text,
-				SelectedModel: &pibridgepb.ModelSnapshot{Provider: "p", Model: "m"},
-				ReportedModel: &pibridgepb.ModelSnapshot{Provider: "p", Model: "m"},
-				Usage:         &pibridgepb.Usage{InputTokens: func() *uint64 { v := bigRun; return &v }()},
-			},
-		},
-	}
-	if err := stream.Send(reply); err != nil {
-		t.Fatalf("send result: %v", err)
-	}
-	out, err := s.Await(proc, id, 5*time.Second)
-	if err != nil {
-		t.Fatalf("await: %v", err)
-	}
-	if out.Kind != OutcomeSummary || out.Text != text {
-		t.Fatalf("outcome %+v", out)
-	}
-	if out.Usage == nil || out.Usage.GetInputTokens() != bigRun {
-		t.Fatalf("uint64 not preserved: %+v", out.Usage)
-	}
-	// Duplicate result after completion is stale, not a new outcome.
-	if err := stream.Send(reply); err != nil {
-		t.Fatalf("send duplicate: %v", err)
-	}
-	time.Sleep(50 * time.Millisecond)
-	l, _ := s.reg.lookupByProcess(proc)
-	l.mu.Lock()
-	stale := l.staleDrops
-	l.mu.Unlock()
-	if stale < 1 {
-		t.Fatal("duplicate result not counted as stale")
-	}
-}
-
-func TestCancelIdempotent(t *testing.T) {
-	s, sock, cleanup := testServer(t)
-	defer cleanup()
-	proc, token, err := s.RegisterPending("pane-cancel")
-	if err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	s.Complete(proc)
-	stream, cancel := openStream(t, sock, "pane-cancel", proc, token)
-	defer cancel()
-	if err := stream.Send(testHello("pane-cancel", proc, 1, CapabilityLifecycle, CapabilitySummary)); err != nil {
-		t.Fatalf("hello: %v", err)
-	}
-	recvAccepted(t, stream)
-	// Cancel unknown id is a no-op success.
-	if err := s.Cancel(proc, 999, pibridgepb.CancelReason_CANCEL_REASON_USER); err != nil {
-		t.Fatalf("cancel unknown: %v", err)
-	}
-	id, err := s.Summarize(proc, "sess", "leaf", &pibridgepb.ModelSnapshot{Provider: "p", Model: "m"}, 0, 5*time.Second)
-	if err != nil {
-		t.Fatalf("Summarize: %v", err)
-	}
-	_, _ = stream.Recv() // Summarize
-	if err := s.Cancel(proc, id, pibridgepb.CancelReason_CANCEL_REASON_USER); err != nil {
-		t.Fatalf("cancel: %v", err)
-	}
-	msg, err := stream.Recv()
-	if err != nil {
-		t.Fatalf("recv cancel: %v", err)
-	}
-	if msg.GetCancel() == nil || msg.GetCancel().GetRequestId() != id {
-		t.Fatalf("expected cancel %d", id)
-	}
-	// Cancel does not free the slot; ack does.
-	if _, _, _ = s.Stats(); true {
-		l, _ := s.reg.lookupByProcess(proc)
-		l.mu.Lock()
-		_, stillPending := l.pending[id]
-		l.mu.Unlock()
-		if !stillPending {
-			t.Fatal("cancel freed slot before ack")
-		}
-	}
-	ack := &pibridgepb.PiToPhi{
-		PaneId: "pane-cancel", ProcessId: proc, RuntimeGeneration: 1,
-		Payload: &pibridgepb.PiToPhi_CancelAcknowledged{CancelAcknowledged: &pibridgepb.CancelAcknowledged{RequestId: id, Disposition: pibridgepb.SummaryTermination_SUMMARY_TERMINATION_ENDED}},
-	}
-	if err := stream.Send(ack); err != nil {
-		t.Fatalf("send ack: %v", err)
-	}
-	out, err := s.Await(proc, id, 5*time.Second)
-	if err != nil {
-		t.Fatalf("await: %v", err)
-	}
-	if out.Kind != OutcomeCancelAck {
-		t.Fatalf("outcome %+v, want CancelAck", out)
-	}
-	// Second cancel after completion is still idempotent success.
-	if err := s.Cancel(proc, id, pibridgepb.CancelReason_CANCEL_REASON_USER); err != nil {
-		t.Fatalf("cancel after ack: %v", err)
-	}
-}
-
-func TestSummarizeConcurrencyBounds(t *testing.T) {
-	s, sock, cleanup := testServer(t)
-	defer cleanup()
-	open := func(pane string) (string, pibridgepb.Integration_ConnectClient, context.CancelFunc) {
-		proc, token, err := s.RegisterPending(pane)
-		if err != nil {
-			t.Fatalf("register %s: %v", pane, err)
-		}
-		s.Complete(proc)
-		stream, cancel := openStream(t, sock, pane, proc, token)
-		if err := stream.Send(testHello(pane, proc, 1, CapabilityLifecycle, CapabilitySummary)); err != nil {
-			cancel()
-			t.Fatalf("hello %s: %v", pane, err)
-		}
-		recvAccepted(t, stream)
-		return proc, stream, cancel
-	}
-	procA, streamA, cancelA := open("pane-conc-a")
-	defer cancelA()
-	defer streamA.CloseSend()
-	procB, streamB, cancelB := open("pane-conc-b")
-	defer cancelB()
-	defer streamB.CloseSend()
-	procC, streamC, cancelC := open("pane-conc-c")
-	defer cancelC()
-	defer streamC.CloseSend()
-
-	if _, err := s.Summarize(procA, "sess", "leaf", &pibridgepb.ModelSnapshot{Provider: "p", Model: "m"}, 0, 5*time.Second); err != nil {
-		t.Fatalf("first: %v", err)
-	}
-	// Second on same pane must fail before provider work.
-	if _, err := s.Summarize(procA, "sess", "leaf", &pibridgepb.ModelSnapshot{Provider: "p", Model: "m"}, 0, 5*time.Second); status.Code(err) != codes.ResourceExhausted {
-		t.Fatalf("per-pane second code=%v, want ResourceExhausted", status.Code(err))
-	}
-	if _, err := s.Summarize(procB, "sess", "leaf", &pibridgepb.ModelSnapshot{Provider: "p", Model: "m"}, 0, 5*time.Second); err != nil {
-		t.Fatalf("second pane: %v", err)
-	}
-	// Third across server must fail (limit 2).
-	if _, err := s.Summarize(procC, "sess", "leaf", &pibridgepb.ModelSnapshot{Provider: "p", Model: "m"}, 0, 5*time.Second); status.Code(err) != codes.ResourceExhausted {
-		t.Fatalf("server third code=%v, want ResourceExhausted", status.Code(err))
-	}
-}
-
-func TestSummarizeBusyAndStale(t *testing.T) {
-	s, sock, cleanup := testServer(t)
-	defer cleanup()
-	proc, token, err := s.RegisterPending("pane-busy")
-	if err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	s.Complete(proc)
-	stream, cancel := openStream(t, sock, "pane-busy", proc, token)
-	defer cancel()
-	hello := testHello("pane-busy", proc, 1, CapabilityLifecycle, CapabilitySummary)
-	hello.GetHello().GetCurrentState().State = pibridgepb.LogicalState_LOGICAL_STATE_RUNNING
-	if err := stream.Send(hello); err != nil {
-		t.Fatalf("hello: %v", err)
-	}
-	recvAccepted(t, stream)
-	if _, err := s.Summarize(proc, "sess", "leaf", &pibridgepb.ModelSnapshot{Provider: "p", Model: "m"}, 0, 5*time.Second); status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("busy code=%v, want FailedPrecondition", status.Code(err))
-	}
-	// Publish idle snapshot, then stale session must fail.
-	snap := &pibridgepb.PiToPhi{
-		PaneId: "pane-busy", ProcessId: proc, RuntimeGeneration: 1,
-		Payload: &pibridgepb.PiToPhi_StateSnapshot{
-			StateSnapshot: &pibridgepb.StateSnapshot{State: pibridgepb.LogicalState_LOGICAL_STATE_IDLE, SessionId: "sess", LeafId: "leaf", StateRevision: 3},
-		},
-	}
-	if err := stream.Send(snap); err != nil {
-		t.Fatalf("snapshot: %v", err)
-	}
-	time.Sleep(50 * time.Millisecond)
-	if _, err := s.Summarize(proc, "other", "leaf", &pibridgepb.ModelSnapshot{Provider: "p", Model: "m"}, 3, 5*time.Second); status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("stale session code=%v", status.Code(err))
-	}
-	if _, err := s.Summarize(proc, "sess", "leaf", &pibridgepb.ModelSnapshot{Provider: "p", Model: "m"}, 99, 5*time.Second); status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("stale revision code=%v", status.Code(err))
-	}
-}
-
-func TestPendingLeaseNoCommands(t *testing.T) {
-	s, sock, cleanup := testServer(t)
-	defer cleanup()
-	proc, token, err := s.RegisterPending("pane-pending")
-	if err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	stream, cancel := openStream(t, sock, "pane-pending", proc, token)
-	defer cancel()
-	if err := stream.Send(testHello("pane-pending", proc, 1, CapabilityLifecycle, CapabilitySummary)); err != nil {
-		t.Fatalf("hello: %v", err)
-	}
-	recvAccepted(t, stream)
-	if _, err := s.Summarize(proc, "sess", "leaf", &pibridgepb.ModelSnapshot{}, 0, time.Second); status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("pending summarize code=%v, want FailedPrecondition", status.Code(err))
-	}
-	s.Complete(proc)
-	if _, err := s.Summarize(proc, "sess", "leaf", &pibridgepb.ModelSnapshot{Provider: "p", Model: "m"}, 0, 5*time.Second); err != nil {
-		t.Fatalf("live summarize after complete: %v", err)
-	}
-}
-
-func TestRevokeClosesStreamAndFailsPending(t *testing.T) {
-	s, sock, cleanup := testServer(t)
-	defer cleanup()
-	proc, token, err := s.RegisterPending("pane-revoke")
-	if err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	s.Complete(proc)
-	stream, cancel := openStream(t, sock, "pane-revoke", proc, token)
-	defer cancel()
-	if err := stream.Send(testHello("pane-revoke", proc, 1, CapabilityLifecycle, CapabilitySummary)); err != nil {
-		t.Fatalf("hello: %v", err)
-	}
-	recvAccepted(t, stream)
-	id, err := s.Summarize(proc, "sess", "leaf", &pibridgepb.ModelSnapshot{Provider: "p", Model: "m"}, 0, 5*time.Second)
-	if err != nil {
-		t.Fatalf("Summarize: %v", err)
-	}
-	s.Revoke(proc)
-	out, err := s.Await(proc, id, 2*time.Second)
-	if err != nil {
-		t.Fatalf("await: %v", err)
-	}
-	if out.Kind != OutcomeRevoked {
-		t.Fatalf("outcome %+v, want Revoked", out)
-	}
-	// Drain to the terminal status: the admitted Summarize may or may not
-	// have flushed before Revoke closed the peer. Either way the stream
-	// must end Canceled and no further command may start.
-	for {
-		_, err = stream.Recv()
-		if err != nil {
-			break
-		}
-	}
-	if status.Code(err) != codes.Canceled {
-		t.Fatalf("stream code=%v, want Canceled", status.Code(err))
+	if view.JournalFirst != 1 || view.JournalLast != 2 {
+		t.Fatalf("journal [%d,%d], want [1,2]", view.JournalFirst, view.JournalLast)
 	}
 }
 

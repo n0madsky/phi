@@ -9,9 +9,7 @@ import type {
     ExtensionContext,
 } from '@earendil-works/pi-coding-agent';
 import type { ChannelCreds } from './channel.js';
-import { CommandTracker } from './commands.js';
 import { type PiContextView, Runtime } from './runtime.js';
-import type { SummaryHelpers } from './summary.js';
 
 export const ENV_TARGET = 'PHI_PI_BRIDGE_ENDPOINT';
 export const ENV_PANE = 'PHI_PI_BRIDGE_PANE_ID';
@@ -24,7 +22,6 @@ interface OwnerSlot {
     active: boolean;
     generation: bigint;
     creds?: ChannelCreds | undefined;
-    tracker?: CommandTracker | undefined;
 }
 
 function ownerSlot(): OwnerSlot {
@@ -70,23 +67,39 @@ function contextView(ctx: ExtensionContext): PiContextView {
         sessionManager: {
             getSessionId: () => ctx.sessionManager.getSessionId(),
             getLeafId: () => ctx.sessionManager.getLeafId(),
-            getBranch: () => ctx.sessionManager.getBranch(),
         },
         get model() {
             return ctx.model ?? undefined;
         },
-        modelRegistry: ctx.modelRegistry,
-        thinkingLevel: ctx.thinkingLevel ?? undefined,
-        isIdle: () => ctx.isIdle(),
-        hasPendingMessages: () => ctx.hasPendingMessages(),
-        getContextUsage: () => ctx.getContextUsage(),
     };
 }
 
-/** Visible for tests to pin the cross-version abort reading. */
-export function settledAbortedForTest(event: unknown): boolean {
+/** Cross-version abort reading for agent_settled payloads. */
+export function settledAborted(event: unknown): boolean {
     if (typeof event !== 'object' || event === null) return false;
     return (event as { aborted?: unknown }).aborted === true;
+}
+
+/**
+ * Final assistant stop reason from an agent_end payload, or null when
+ * no assistant message is present. 1.0.1 settlements carry no abort
+ * flag, so this evidence classifies them.
+ */
+export function agentEndStopReason(event: unknown): string | null {
+    if (!isRecord(event) || !Array.isArray(event['messages'])) return null;
+    const messages = event['messages'] as unknown[];
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const message = messages[i];
+        if (!isRecord(message) || message['role'] !== 'assistant') continue;
+        return typeof message['stopReason'] === 'string'
+            ? (message['stopReason'] as string)
+            : null;
+    }
+    return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
 }
 
 /** Narrow runtime surface the factory needs; Runtime satisfies it. */
@@ -94,6 +107,7 @@ export interface FactoryRuntime {
     start(ctx: PiContextView): void;
     onSessionStart(ctx: PiContextView): void;
     onAgentStart(ctx: PiContextView): void;
+    onAgentEnd(stopReason: string | null): void;
     onAgentSettled(ctx: PiContextView, aborted: boolean): void;
     onModelSelect(ctx: PiContextView): void;
     onSessionTree(ctx: PiContextView): void;
@@ -115,29 +129,40 @@ export function createExtension(
     pi: ExtensionAPI,
     deps: FactoryDeps = {},
 ): void {
-    createExtensionWithHelpers(pi, null, deps);
-}
-
-/**
- * Factory with injected host summary helpers. The entry shim resolves
- * the helpers through the host loader; null keeps lifecycle-only mode.
- */
-export function createExtensionWithHelpers(
-    pi: ExtensionAPI,
-    helpers: SummaryHelpers | null,
-    deps: FactoryDeps = {},
-): void {
     const envCreds = readCredsFromEnv();
     if (!envCreds && !ownerSlot().creds) return;
 
     let runtime: FactoryRuntime | null = null;
     let claimed = false;
+    let sessionId: string | null = null;
+
+    const make =
+        deps.makeRuntime ??
+        ((c, g) => new Runtime({ creds: c, generation: g }));
 
     pi.on('session_start', (_event, ctx) => {
         const slot = ownerSlot();
         if (slot.active) {
-            // A replacement session on a claimed runtime.
-            runtime?.onSessionStart(contextView(ctx));
+            if (!claimed || runtime === null) return;
+            // A replacement session on our claimed runtime: read its
+            // identity, and retire into a fresh runtime only when the
+            // session actually changed. A duplicate announcement for
+            // the same session just refreshes the view.
+            let next: string | null = null;
+            try {
+                next = ctx.sessionManager.getSessionId();
+            } catch {
+                next = null;
+            }
+            if (next === null || next === sessionId) {
+                runtime.onSessionStart(contextView(ctx));
+                return;
+            }
+            runtime.shutdown();
+            slot.generation += 1n;
+            sessionId = next;
+            runtime = make(slot.creds!, slot.generation);
+            runtime.start(contextView(ctx));
             return;
         }
         const creds = readCredsFromEnv() ?? slot.creds;
@@ -147,12 +172,11 @@ export function createExtensionWithHelpers(
         slot.active = true;
         slot.generation += 1n;
         claimed = true;
-        if (slot.tracker === undefined) slot.tracker = new CommandTracker();
-        const tracker = slot.tracker;
-        const make =
-            deps.makeRuntime ??
-            ((c, g) =>
-                new Runtime({ creds: c, generation: g, helpers, tracker }));
+        try {
+            sessionId = ctx.sessionManager.getSessionId();
+        } catch {
+            sessionId = null;
+        }
         runtime = make(creds, slot.generation);
         runtime.start(contextView(ctx));
     });
@@ -161,8 +185,12 @@ export function createExtensionWithHelpers(
         runtime?.onAgentStart(contextView(ctx));
     });
 
+    pi.on('agent_end', (event) => {
+        runtime?.onAgentEnd(agentEndStopReason(event));
+    });
+
     pi.on('agent_settled', (event, ctx) => {
-        runtime?.onAgentSettled(contextView(ctx), settledAbortedForTest(event));
+        runtime?.onAgentSettled(contextView(ctx), settledAborted(event));
     });
 
     pi.on('model_select', (_event, ctx) => {

@@ -6,7 +6,7 @@ import { startPhi } from './_server.js';
 // Synthetic Pi backend: loads the REAL committed bridge bundle and drives
 // it with a minimal mock Pi host. Stdin lines map to lifecycle edges:
 //   start       -> agent_start
-//   settle      -> agent_settled (completed)
+//   settle      -> agent_end (stop) then agent_settled (completed)
 //   abort       -> agent_settled (aborted)
 //   say <text>  -> terminal output without any bridge event
 //   exit        -> session_shutdown and process exit
@@ -49,6 +49,7 @@ process.stdin.on('data', (chunk) => {
             emit('agent_start', { type: 'agent_start' });
             console.log('run started');
         } else if (line === 'settle') {
+            emit('agent_end', { type: 'agent_end', messages: [{ role: 'assistant', content: [], stopReason: 'stop' }] });
             emit('agent_settled', { type: 'agent_settled', aborted: false });
             console.log('run settled');
         } else if (line === 'abort') {
@@ -210,7 +211,7 @@ test('Pi bridge reports managed state and rings the bell on settlement', async (
         await expect(piTab).toHaveClass(/has-attention/, { timeout: 10_000 });
         await expect(
             page.locator('.toast-message', {
-                hasText: 'Session "E2E Pi" completed execution.',
+                hasText: 'Session "E2E Pi" is waiting at a prompt.',
             }),
         ).toBeVisible({ timeout: 10_000 });
 

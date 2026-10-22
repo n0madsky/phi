@@ -8,8 +8,8 @@ the schema defines it.
 ## Roles and transport
 
 - Phi owns one local-IPC gRPC server per Phi process. One bidirectional
-  `Connect` stream per provisioned Pi process. The extension dials; Phi
-  sends typed commands back on the same stream.
+  `Connect` stream per provisioned Pi process. The extension dials;
+  Phi answers with `Accepted` or a terminal `ProtocolError`.
 - Unix-domain socket on macOS/Linux (`unix:` + absolute path, no
   authority, no percent encoding). Local named pipe on Windows
   (`unix:` + literal `\\.\pipe\phi-pi-<hex>`).
@@ -69,14 +69,9 @@ Runtime identity binds `(generation, runtime_id, session_id)`:
 
 ## Capabilities
 
-| Name              | Since | Meaning                                   |
-| ----------------- | ----- | ----------------------------------------- |
-| `pi.lifecycle.v1` | M2    | Lifecycle edges, snapshots, settlement    |
-| `pi.summary.v1`   | M3    | Explicit separate-session summary command |
-
-The M2 runtime advertises lifecycle only. A `Summarize` command sent to
-a runtime without the summary capability receives
-`COMMAND_ERROR_UNSUPPORTED_CAPABILITY`; the stream stays open.
+| Name              | Meaning                                |
+| ----------------- | -------------------------------------- |
+| `pi.lifecycle.v1` | Lifecycle edges, snapshots, settlement |
 
 ## Lifecycle events
 
@@ -90,27 +85,18 @@ compaction recovery, and queued work until settlement:
 - `agent_settled` for an observed run emits `AgentSettled` and returns
   to idle. A settlement with no observed run is ignored: unobserved
   work must not ring the bell.
-- Outcome comes from the settling event only: aborted (Escape) maps
-  to `ABORTED`; anything else maps to `COMPLETED`, meaning settled
-  without observed cancellation, not success. An old outcome is never
-  reused for a later run. Pi 1.0.1 reports no abort bit, so its
-  settlements always read `COMPLETED`.
+- Outcome comes from the settling event plus the final assistant
+  stop reason (`agent_end`): an abort flag or `aborted` evidence maps
+  to `ABORTED`; a clean `stop` maps to `COMPLETED`, meaning settled
+  without observed cancellation, not success; `error` maps to `ERROR`;
+  anything else stays explicitly `UNSPECIFIED`. An old outcome is
+  never reused for a later run. Pi 1.0.1 reports no abort bit, so
+  its settlements classify from stop evidence alone.
 
 `StateSnapshot` is authoritative current state, sent on hello,
 reconnect, and every transition. It carries the retained journal (at
-most 64 rows, oldest dropped first with `journal_gap` latched), the
-state revision, and outstanding summaries (empty before M3).
-
-## Summary commands (M3)
-
-Phi admits at most one summary per pane and two server-wide, only for
-live leases with the negotiated capability, an idle baseline, and a
-fresh session/leaf/revision. Request IDs are Phi-issued, nonzero, and
-monotonic per process. Terminal outcomes are exactly one of
-`SummaryResult`, `CommandError`, or `CancelAcknowledged`. Cancel is
-idempotent and frees no slot; only terminal evidence, snapshot
-termination, or process exit releases an admission. The extension
-rejects repeated or older IDs before provider work.
+most 64 rows, oldest dropped first with `journal_gap` latched) and
+the state revision.
 
 ## Bounds
 
@@ -121,10 +107,7 @@ rejects repeated or older IDs before provider work.
 | Message                      | 256 KiB                    |
 | Send queue per peer          | 16 messages and 256 KiB    |
 | Blocked send                 | 5 s, then the stream ends  |
-| Summary text                 | 128 KiB UTF-8              |
-| Safe message                 | 2 KiB UTF-8                |
 | Journal rows retained        | 64, then gap latches       |
-| Summary deadline             | 120 s                      |
 
 Queue overflow and blocked sends end only the affected stream with an
 explicit status. Lease, journal, and last state survive for reconnect.
@@ -137,7 +120,7 @@ explicit status. Lease, journal, and last state survive for reconnect.
 | Pane or identity mismatch                        | `PermissionDenied`    |
 | Wrong protocol version, stale/conflicting runtime| `FailedPrecondition` |
 | Oversized hello                                  | `ResourceExhausted`   |
-| Queue overflow, concurrency refusal               | `ResourceExhausted`   |
+| Queue overflow               | `ResourceExhausted`   |
 | Malformed or out-of-bound payload                | `InvalidArgument`     |
 | Revoke, replace, client cancel                   | `Cancelled`           |
 | Send failure or blocked send                     | `Unavailable`         |
@@ -154,14 +137,15 @@ Other failures retry with bounded backoff on the same generation.
   `session_start`, `agent_start`, `agent_settled`, `session_shutdown`,
   `ReadonlySessionManager` identity readers, `ctx.model`.
 - The `aborted` bit on `agent_settled` exists on 1.3.0 only. Code must
-  read it defensively and behave on 1.0.1 without it.
+  read it defensively and behave on 1.0.1 without it. Both hosts
+  emit `agent_end` with assistant stop reasons for classification.
 
 ## Installation
 
-Phi provisions the canonical `dist/pi-phi-extension.cjs` bundle plus
-its `dist/pi-phi-entry.ts` loader shim privately per launch with
-explicit `--extension` pointing at the shim; no global install, no
-settings change, no preinstalled package. If provisioning fails before spawn,
+Phi provisions the canonical `dist/pi-phi-extension.cjs` bundle
+privately per launch with explicit `--extension` pointing at the
+bundle; no global install, no settings change, no preinstalled
+package. If provisioning fails before spawn,
 Phi launches Pi normally without Phi-owned arguments or credentials.
 If the plugin fails later, integration features disable themselves
 without killing or restarting Pi. Duplicate loads (user package plus

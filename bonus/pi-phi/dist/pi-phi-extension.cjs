@@ -2496,9 +2496,9 @@ var require_subchannel_address = __commonJS({
         return this.map.size;
       }
       getForSubchannelAddress(address) {
-        for (const entry2 of this.map) {
-          if (endpointHasAddress(entry2.key, address)) {
-            return entry2.value;
+        for (const entry of this.map) {
+          if (endpointHasAddress(entry.key, address)) {
+            return entry.value;
           }
         }
         return void 0;
@@ -2509,48 +2509,48 @@ var require_subchannel_address = __commonJS({
        */
       deleteMissing(endpoints) {
         const removedValues = [];
-        for (const entry2 of this.map) {
+        for (const entry of this.map) {
           let foundEntry = false;
           for (const endpoint of endpoints) {
-            if (endpointEqualUnordered(endpoint, entry2.key)) {
+            if (endpointEqualUnordered(endpoint, entry.key)) {
               foundEntry = true;
             }
           }
           if (!foundEntry) {
-            removedValues.push(entry2.value);
-            this.map.delete(entry2);
+            removedValues.push(entry.value);
+            this.map.delete(entry);
           }
         }
         return removedValues;
       }
       get(endpoint) {
-        for (const entry2 of this.map) {
-          if (endpointEqualUnordered(endpoint, entry2.key)) {
-            return entry2.value;
+        for (const entry of this.map) {
+          if (endpointEqualUnordered(endpoint, entry.key)) {
+            return entry.value;
           }
         }
         return void 0;
       }
       set(endpoint, mapEntry) {
-        for (const entry2 of this.map) {
-          if (endpointEqualUnordered(endpoint, entry2.key)) {
-            entry2.value = mapEntry;
+        for (const entry of this.map) {
+          if (endpointEqualUnordered(endpoint, entry.key)) {
+            entry.value = mapEntry;
             return;
           }
         }
         this.map.add({ key: endpoint, value: mapEntry });
       }
       delete(endpoint) {
-        for (const entry2 of this.map) {
-          if (endpointEqualUnordered(endpoint, entry2.key)) {
-            this.map.delete(entry2);
+        for (const entry of this.map) {
+          if (endpointEqualUnordered(endpoint, entry.key)) {
+            this.map.delete(entry);
             return;
           }
         }
       }
       has(endpoint) {
-        for (const entry2 of this.map) {
-          if (endpointEqualUnordered(endpoint, entry2.key)) {
+        for (const entry of this.map) {
+          if (endpointEqualUnordered(endpoint, entry.key)) {
             return true;
           }
         }
@@ -2560,18 +2560,18 @@ var require_subchannel_address = __commonJS({
         this.map.clear();
       }
       *keys() {
-        for (const entry2 of this.map) {
-          yield entry2.key;
+        for (const entry of this.map) {
+          yield entry.key;
         }
       }
       *values() {
-        for (const entry2 of this.map) {
-          yield entry2.value;
+        for (const entry of this.map) {
+          yield entry.value;
         }
       }
       *entries() {
-        for (const entry2 of this.map) {
-          yield [entry2.key, entry2.value];
+        for (const entry of this.map) {
+          yield [entry.key, entry.value];
         }
       }
     };
@@ -24173,12 +24173,12 @@ var require_load_balancer_weighted_round_robin = __commonJS({
         }
       }
       pick(pickArgs) {
-        const entry2 = this.queue.pop();
-        this.queue.push(Object.assign(Object.assign({}, entry2), { deadline: entry2.deadline + entry2.period }));
-        const childPick = entry2.picker.pick(pickArgs);
+        const entry = this.queue.pop();
+        this.queue.push(Object.assign(Object.assign({}, entry), { deadline: entry.deadline + entry.period }));
+        const childPick = entry.picker.pick(pickArgs);
         if (childPick.pickResultType === picker_1.PickResultType.COMPLETE) {
           if (this.metricsHandler) {
-            return Object.assign(Object.assign({}, childPick), { onCallEnded: (0, orca_1.createMetricsReader)((loadReport) => this.metricsHandler(loadReport, entry2.endpointName), childPick.onCallEnded) });
+            return Object.assign(Object.assign({}, childPick), { onCallEnded: (0, orca_1.createMetricsReader)((loadReport) => this.metricsHandler(loadReport, entry.endpointName), childPick.onCallEnded) });
           } else {
             const subchannelWrapper = childPick.subchannel;
             return Object.assign(Object.assign({}, childPick), { subchannel: subchannelWrapper.getWrappedSubchannel() });
@@ -24200,14 +24200,14 @@ var require_load_balancer_weighted_round_robin = __commonJS({
       }
       countChildrenWithState(state) {
         let count = 0;
-        for (const entry2 of this.children.values()) {
-          if (entry2.child.getConnectivityState() === state) {
+        for (const entry of this.children.values()) {
+          if (entry.child.getConnectivityState() === state) {
             count += 1;
           }
         }
         return count;
       }
-      updateWeight(entry2, loadReport) {
+      updateWeight(entry, loadReport) {
         var _a, _b;
         const qps = loadReport.rps_fractional;
         let utilization = loadReport.application_utilization;
@@ -24219,26 +24219,26 @@ var require_load_balancer_weighted_round_robin = __commonJS({
           return;
         }
         const now = /* @__PURE__ */ new Date();
-        if (entry2.nonEmptySince === null) {
-          entry2.nonEmptySince = now;
+        if (entry.nonEmptySince === null) {
+          entry.nonEmptySince = now;
         }
-        entry2.lastUpdated = now;
-        entry2.weight = newWeight;
+        entry.lastUpdated = now;
+        entry.weight = newWeight;
       }
-      getWeight(entry2) {
+      getWeight(entry) {
         if (!this.latestConfig) {
           return 0;
         }
         const now = (/* @__PURE__ */ new Date()).getTime();
-        if (now - entry2.lastUpdated.getTime() >= this.latestConfig.getWeightExpirationPeriodMs()) {
-          entry2.nonEmptySince = null;
+        if (now - entry.lastUpdated.getTime() >= this.latestConfig.getWeightExpirationPeriodMs()) {
+          entry.nonEmptySince = null;
           return 0;
         }
         const blackoutPeriod = this.latestConfig.getBlackoutPeriodMs();
-        if (blackoutPeriod > 0 && (entry2.nonEmptySince === null || now - entry2.nonEmptySince.getTime() < blackoutPeriod)) {
+        if (blackoutPeriod > 0 && (entry.nonEmptySince === null || now - entry.nonEmptySince.getTime() < blackoutPeriod)) {
           return 0;
         }
-        return entry2.weight;
+        return entry.weight;
       }
       calculateAndUpdateState() {
         if (this.updatesPaused || !this.latestConfig) {
@@ -24246,17 +24246,17 @@ var require_load_balancer_weighted_round_robin = __commonJS({
         }
         if (this.countChildrenWithState(connectivity_state_1.ConnectivityState.READY) > 0) {
           const weightedPickers = [];
-          for (const [endpoint, entry2] of this.children) {
-            if (entry2.child.getConnectivityState() !== connectivity_state_1.ConnectivityState.READY) {
+          for (const [endpoint, entry] of this.children) {
+            if (entry.child.getConnectivityState() !== connectivity_state_1.ConnectivityState.READY) {
               continue;
             }
             weightedPickers.push({
               endpointName: endpoint,
-              picker: entry2.child.getPicker(),
-              weight: this.getWeight(entry2)
+              picker: entry.child.getPicker(),
+              weight: this.getWeight(entry)
             });
           }
-          trace("Created picker with weights: " + weightedPickers.map((entry2) => entry2.endpointName + ":" + entry2.weight).join(","));
+          trace("Created picker with weights: " + weightedPickers.map((entry) => entry.endpointName + ":" + entry.weight).join(","));
           let metricsHandler;
           if (!this.latestConfig.getEnableOobLoadReport()) {
             metricsHandler = (loadReport, endpointName) => {
@@ -24314,16 +24314,16 @@ var require_load_balancer_weighted_round_robin = __commonJS({
         for (const endpoint of maybeEndpointList.value) {
           const name = (0, subchannel_address_1.endpointToString)(endpoint);
           seenEndpointNames.add(name);
-          let entry2 = this.children.get(name);
-          if (!entry2) {
-            entry2 = {
+          let entry = this.children.get(name);
+          if (!entry) {
+            entry = {
               child: new load_balancer_pick_first_1.LeafLoadBalancer(endpoint, (0, load_balancer_1.createChildChannelControlHelper)(this.channelControlHelper, {
                 updateState: (connectivityState, picker, errorMessage) => {
                   if (this.currentState === connectivity_state_1.ConnectivityState.READY && connectivityState !== connectivity_state_1.ConnectivityState.READY) {
                     this.channelControlHelper.requestReresolution();
                   }
                   if (connectivityState === connectivity_state_1.ConnectivityState.READY) {
-                    entry2.nonEmptySince = null;
+                    entry.nonEmptySince = null;
                   }
                   if (errorMessage) {
                     this.lastError = errorMessage;
@@ -24332,8 +24332,8 @@ var require_load_balancer_weighted_round_robin = __commonJS({
                 },
                 createSubchannel: (subchannelAddress, subchannelArgs) => {
                   const subchannel = this.channelControlHelper.createSubchannel(subchannelAddress, subchannelArgs);
-                  if (entry2 === null || entry2 === void 0 ? void 0 : entry2.oobMetricsListener) {
-                    return new orca_1.OrcaOobMetricsSubchannelWrapper(subchannel, entry2.oobMetricsListener, this.latestConfig.getOobLoadReportingPeriodMs());
+                  if (entry === null || entry === void 0 ? void 0 : entry.oobMetricsListener) {
+                    return new orca_1.OrcaOobMetricsSubchannelWrapper(subchannel, entry.oobMetricsListener, this.latestConfig.getOobLoadReportingPeriodMs());
                   } else {
                     return subchannel;
                   }
@@ -24344,21 +24344,21 @@ var require_load_balancer_weighted_round_robin = __commonJS({
               weight: 0,
               oobMetricsListener: null
             };
-            this.children.set(name, entry2);
+            this.children.set(name, entry);
           }
           if (lbConfig.getEnableOobLoadReport()) {
-            entry2.oobMetricsListener = (loadReport) => {
-              this.updateWeight(entry2, loadReport);
+            entry.oobMetricsListener = (loadReport) => {
+              this.updateWeight(entry, loadReport);
             };
           } else {
-            entry2.oobMetricsListener = null;
+            entry.oobMetricsListener = null;
           }
         }
-        for (const [endpointName, entry2] of this.children) {
+        for (const [endpointName, entry] of this.children) {
           if (seenEndpointNames.has(endpointName)) {
-            entry2.child.startConnecting();
+            entry.child.startConnecting();
           } else {
-            entry2.child.destroy();
+            entry.child.destroy();
             this.children.delete(endpointName);
           }
         }
@@ -24379,8 +24379,8 @@ var require_load_balancer_weighted_round_robin = __commonJS({
       resetBackoff() {
       }
       destroy() {
-        for (const entry2 of this.children.values()) {
-          entry2.child.destroy();
+        for (const entry of this.children.values()) {
+          entry.child.destroy();
         }
         this.children.clear();
         if (this.weightUpdateTimer) {
@@ -24578,91 +24578,6 @@ var require_src3 = __commonJS({
     })();
   }
 });
-
-// src/commands.ts
-var CommandTracker = class {
-  highWater = 0n;
-  pending = /* @__PURE__ */ new Map();
-  /** Highest accepted Summarize ID so far. Zero when none accepted. */
-  get highWaterMark() {
-    return this.highWater;
-  }
-  get pendingCount() {
-    return this.pending.size;
-  }
-  /**
-   * Note one incoming Summarize ID. Returns 'duplicate' when the ID is
-   * zero, repeated, or older than the high-water mark. Accepted IDs
-   * advance the mark and enter pending until complete/cancel settles.
-   */
-  noteSummarize(requestId) {
-    if (requestId === 0n) return "duplicate";
-    if (requestId <= this.highWater) return "duplicate";
-    if (this.pending.has(requestId)) return "duplicate";
-    this.highWater = requestId;
-    this.pending.set(requestId, {
-      cancelled: false,
-      phiCancel: false,
-      controller: null
-    });
-    return "accept";
-  }
-  /** Complete one pending request. Unknown IDs are a no-op. */
-  complete(requestId) {
-    this.pending.delete(requestId);
-  }
-  /**
-   * Register the abort controller for a pending request. When the
-   * request was already cancelled, aborts immediately and returns
-   * false. Unknown IDs return false without aborting.
-   */
-  setController(requestId, controller) {
-    const entry2 = this.pending.get(requestId);
-    if (entry2 === void 0) return false;
-    if (entry2.cancelled) {
-      controller.abort();
-      return false;
-    }
-    entry2.controller = controller;
-    return true;
-  }
-  /**
-   * Note one incoming Cancel. Idempotent: unknown or completed IDs are a
-   * no-op success. Never starts work or affects another request. Returns
-   * true when the ID names a pending request.
-   */
-  noteCancel(requestId, source = "phi") {
-    const entry2 = this.pending.get(requestId);
-    if (entry2 === void 0) return false;
-    entry2.cancelled = true;
-    if (source === "phi") entry2.phiCancel = true;
-    entry2.controller?.abort();
-    return true;
-  }
-  /** True when the pending request was cancelled. False for unknown IDs. */
-  isCancelled(requestId) {
-    return this.pending.get(requestId)?.cancelled ?? false;
-  }
-  /**
-   * True when a bridge Cancel named this pending request. The caller
-   * owes CancelAcknowledged instead of a command error.
-   */
-  phiCancelled(requestId) {
-    return this.pending.get(requestId)?.phiCancel ?? false;
-  }
-  /**
-   * Abort pending work for a runtime replacement or shutdown. The
-   * high-water mark is retained so delayed duplicates cannot
-   * re-execute provider work.
-   */
-  resetRuntime() {
-    for (const entry2 of this.pending.values()) {
-      entry2.cancelled = true;
-      entry2.controller?.abort();
-    }
-    this.pending.clear();
-  }
-};
 
 // src/runtime.ts
 var import_node_crypto = require("node:crypto");
@@ -25584,15 +25499,6 @@ var PiToPhi = {
       case "stateSnapshot":
         StateSnapshot.encode(message.payload.value, writer.uint32(106).fork()).join();
         break;
-      case "summaryResult":
-        SummaryResult.encode(message.payload.value, writer.uint32(114).fork()).join();
-        break;
-      case "commandError":
-        CommandError.encode(message.payload.value, writer.uint32(122).fork()).join();
-        break;
-      case "cancelAcknowledged":
-        CancelAcknowledged.encode(message.payload.value, writer.uint32(130).fork()).join();
-        break;
     }
     return writer;
   },
@@ -25658,30 +25564,6 @@ var PiToPhi = {
             message.payload = { $case: "stateSnapshot", value: StateSnapshot.decode(reader, reader.uint32()) };
             continue;
           }
-          case 14: {
-            if (tag !== 114) {
-              break;
-            }
-            message.payload = { $case: "summaryResult", value: SummaryResult.decode(reader, reader.uint32()) };
-            continue;
-          }
-          case 15: {
-            if (tag !== 122) {
-              break;
-            }
-            message.payload = { $case: "commandError", value: CommandError.decode(reader, reader.uint32()) };
-            continue;
-          }
-          case 16: {
-            if (tag !== 130) {
-              break;
-            }
-            message.payload = {
-              $case: "cancelAcknowledged",
-              value: CancelAcknowledged.decode(reader, reader.uint32())
-            };
-            continue;
-          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -25726,27 +25608,6 @@ var PiToPhi = {
         }
         break;
       }
-      case "summaryResult": {
-        if (object.payload?.value !== void 0 && object.payload?.value !== null) {
-          message.payload = { $case: "summaryResult", value: SummaryResult.fromPartial(object.payload.value) };
-        }
-        break;
-      }
-      case "commandError": {
-        if (object.payload?.value !== void 0 && object.payload?.value !== null) {
-          message.payload = { $case: "commandError", value: CommandError.fromPartial(object.payload.value) };
-        }
-        break;
-      }
-      case "cancelAcknowledged": {
-        if (object.payload?.value !== void 0 && object.payload?.value !== null) {
-          message.payload = {
-            $case: "cancelAcknowledged",
-            value: CancelAcknowledged.fromPartial(object.payload.value)
-          };
-        }
-        break;
-      }
     }
     return message;
   }
@@ -25771,12 +25632,6 @@ var PhiToPi = {
     switch (message.payload?.$case) {
       case "accepted":
         Accepted.encode(message.payload.value, writer.uint32(82).fork()).join();
-        break;
-      case "summarize":
-        Summarize.encode(message.payload.value, writer.uint32(90).fork()).join();
-        break;
-      case "cancel":
-        Cancel.encode(message.payload.value, writer.uint32(98).fork()).join();
         break;
       case "protocolError":
         ProtocolError.encode(message.payload.value, writer.uint32(106).fork()).join();
@@ -25825,20 +25680,6 @@ var PhiToPi = {
             message.payload = { $case: "accepted", value: Accepted.decode(reader, reader.uint32()) };
             continue;
           }
-          case 11: {
-            if (tag !== 90) {
-              break;
-            }
-            message.payload = { $case: "summarize", value: Summarize.decode(reader, reader.uint32()) };
-            continue;
-          }
-          case 12: {
-            if (tag !== 98) {
-              break;
-            }
-            message.payload = { $case: "cancel", value: Cancel.decode(reader, reader.uint32()) };
-            continue;
-          }
           case 13: {
             if (tag !== 106) {
               break;
@@ -25872,18 +25713,6 @@ var PhiToPi = {
         }
         break;
       }
-      case "summarize": {
-        if (object.payload?.value !== void 0 && object.payload?.value !== null) {
-          message.payload = { $case: "summarize", value: Summarize.fromPartial(object.payload.value) };
-        }
-        break;
-      }
-      case "cancel": {
-        if (object.payload?.value !== void 0 && object.payload?.value !== null) {
-          message.payload = { $case: "cancel", value: Cancel.fromPartial(object.payload.value) };
-        }
-        break;
-      }
       case "protocolError": {
         if (object.payload?.value !== void 0 && object.payload?.value !== null) {
           message.payload = { $case: "protocolError", value: ProtocolError.fromPartial(object.payload.value) };
@@ -25897,8 +25726,6 @@ var PhiToPi = {
 function createBaseHello() {
   return {
     protocolVersion: 0,
-    packageVersion: "",
-    hostVersion: "",
     sessionId: "",
     runtimeId: "",
     capabilities: [],
@@ -25911,12 +25738,6 @@ var Hello = {
   encode(message, writer = new BinaryWriter()) {
     if (message.protocolVersion !== 0) {
       writer.uint32(8).uint32(message.protocolVersion);
-    }
-    if (message.packageVersion !== "") {
-      writer.uint32(18).string(message.packageVersion);
-    }
-    if (message.hostVersion !== "") {
-      writer.uint32(26).string(message.hostVersion);
     }
     if (message.sessionId !== "") {
       writer.uint32(34).string(message.sessionId);
@@ -25962,20 +25783,6 @@ var Hello = {
               break;
             }
             message.protocolVersion = reader.uint32();
-            continue;
-          }
-          case 2: {
-            if (tag !== 18) {
-              break;
-            }
-            message.packageVersion = reader.string();
-            continue;
-          }
-          case 3: {
-            if (tag !== 26) {
-              break;
-            }
-            message.hostVersion = reader.string();
             continue;
           }
           case 4: {
@@ -26037,8 +25844,6 @@ var Hello = {
   fromPartial(object) {
     const message = createBaseHello();
     message.protocolVersion = object.protocolVersion ?? 0;
-    message.packageVersion = object.packageVersion ?? "";
-    message.hostVersion = object.hostVersion ?? "";
     message.sessionId = object.sessionId ?? "";
     message.runtimeId = object.runtimeId ?? "";
     message.capabilities = object.capabilities?.map((e) => e) || [];
@@ -26429,81 +26234,8 @@ var ModelSnapshot = {
     return message;
   }
 };
-function createBaseOutstandingSummary() {
-  return { requestId: 0n, termination: 0 };
-}
-var OutstandingSummary = {
-  encode(message, writer = new BinaryWriter()) {
-    if (message.requestId !== 0n) {
-      if (BigInt.asUintN(64, message.requestId) !== message.requestId) {
-        throw new globalThis.Error("value provided for field message.requestId of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.requestId);
-    }
-    if (message.termination !== 0) {
-      writer.uint32(16).int32(message.termination);
-    }
-    return writer;
-  },
-  decode(input, length) {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = reader.__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    reader.__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === void 0 ? reader.len : reader.pos + length;
-      const message = createBaseOutstandingSummary();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-            message.requestId = reader.uint64();
-            continue;
-          }
-          case 2: {
-            if (tag !== 16) {
-              break;
-            }
-            message.termination = reader.int32();
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      reader.__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-  create(base) {
-    return OutstandingSummary.fromPartial(base ?? {});
-  },
-  fromPartial(object) {
-    const message = createBaseOutstandingSummary();
-    message.requestId = object.requestId !== void 0 && object.requestId !== null ? BigInt(object.requestId) : 0n;
-    message.termination = object.termination ?? 0;
-    return message;
-  }
-};
 function createBaseStateSnapshot() {
-  return {
-    state: 0,
-    sessionId: "",
-    leafId: "",
-    model: void 0,
-    journal: [],
-    journalGap: false,
-    stateRevision: 0n,
-    outstandingSummaries: []
-  };
+  return { state: 0, sessionId: "", leafId: "", model: void 0, journal: [], journalGap: false, stateRevision: 0n };
 }
 var StateSnapshot = {
   encode(message, writer = new BinaryWriter()) {
@@ -26530,9 +26262,6 @@ var StateSnapshot = {
         throw new globalThis.Error("value provided for field message.stateRevision of type uint64 too large");
       }
       writer.uint32(56).uint64(message.stateRevision);
-    }
-    for (const v of message.outstandingSummaries) {
-      OutstandingSummary.encode(v, writer.uint32(66).fork()).join();
     }
     return writer;
   },
@@ -26598,13 +26327,6 @@ var StateSnapshot = {
             message.stateRevision = reader.uint64();
             continue;
           }
-          case 8: {
-            if (tag !== 66) {
-              break;
-            }
-            message.outstandingSummaries.push(OutstandingSummary.decode(reader, reader.uint32()));
-            continue;
-          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -26628,555 +26350,6 @@ var StateSnapshot = {
     message.journal = object.journal?.map((e) => LifecycleRecord.fromPartial(e)) || [];
     message.journalGap = object.journalGap ?? false;
     message.stateRevision = object.stateRevision !== void 0 && object.stateRevision !== null ? BigInt(object.stateRevision) : 0n;
-    message.outstandingSummaries = object.outstandingSummaries?.map((e) => OutstandingSummary.fromPartial(e)) || [];
-    return message;
-  }
-};
-function createBaseUsage() {
-  return { inputTokens: void 0, outputTokens: void 0, costUsd: void 0, costFromPriceTables: false };
-}
-var Usage = {
-  encode(message, writer = new BinaryWriter()) {
-    if (message.inputTokens !== void 0) {
-      if (BigInt.asUintN(64, message.inputTokens) !== message.inputTokens) {
-        throw new globalThis.Error("value provided for field message.inputTokens of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.inputTokens);
-    }
-    if (message.outputTokens !== void 0) {
-      if (BigInt.asUintN(64, message.outputTokens) !== message.outputTokens) {
-        throw new globalThis.Error("value provided for field message.outputTokens of type uint64 too large");
-      }
-      writer.uint32(16).uint64(message.outputTokens);
-    }
-    if (message.costUsd !== void 0) {
-      writer.uint32(25).double(message.costUsd);
-    }
-    if (message.costFromPriceTables !== false) {
-      writer.uint32(32).bool(message.costFromPriceTables);
-    }
-    return writer;
-  },
-  decode(input, length) {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = reader.__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    reader.__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === void 0 ? reader.len : reader.pos + length;
-      const message = createBaseUsage();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-            message.inputTokens = reader.uint64();
-            continue;
-          }
-          case 2: {
-            if (tag !== 16) {
-              break;
-            }
-            message.outputTokens = reader.uint64();
-            continue;
-          }
-          case 3: {
-            if (tag !== 25) {
-              break;
-            }
-            message.costUsd = reader.double();
-            continue;
-          }
-          case 4: {
-            if (tag !== 32) {
-              break;
-            }
-            message.costFromPriceTables = reader.bool();
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      reader.__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-  create(base) {
-    return Usage.fromPartial(base ?? {});
-  },
-  fromPartial(object) {
-    const message = createBaseUsage();
-    message.inputTokens = object.inputTokens !== void 0 && object.inputTokens !== null ? BigInt(object.inputTokens) : void 0;
-    message.outputTokens = object.outputTokens !== void 0 && object.outputTokens !== null ? BigInt(object.outputTokens) : void 0;
-    message.costUsd = object.costUsd ?? void 0;
-    message.costFromPriceTables = object.costFromPriceTables ?? false;
-    return message;
-  }
-};
-function createBaseSummaryResult() {
-  return {
-    requestId: 0n,
-    sessionId: "",
-    leafId: "",
-    text: "",
-    selectedModel: void 0,
-    reportedModel: void 0,
-    usage: void 0,
-    stateRevision: 0n
-  };
-}
-var SummaryResult = {
-  encode(message, writer = new BinaryWriter()) {
-    if (message.requestId !== 0n) {
-      if (BigInt.asUintN(64, message.requestId) !== message.requestId) {
-        throw new globalThis.Error("value provided for field message.requestId of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.requestId);
-    }
-    if (message.sessionId !== "") {
-      writer.uint32(18).string(message.sessionId);
-    }
-    if (message.leafId !== "") {
-      writer.uint32(26).string(message.leafId);
-    }
-    if (message.text !== "") {
-      writer.uint32(34).string(message.text);
-    }
-    if (message.selectedModel !== void 0) {
-      ModelSnapshot.encode(message.selectedModel, writer.uint32(42).fork()).join();
-    }
-    if (message.reportedModel !== void 0) {
-      ModelSnapshot.encode(message.reportedModel, writer.uint32(50).fork()).join();
-    }
-    if (message.usage !== void 0) {
-      Usage.encode(message.usage, writer.uint32(58).fork()).join();
-    }
-    if (message.stateRevision !== 0n) {
-      if (BigInt.asUintN(64, message.stateRevision) !== message.stateRevision) {
-        throw new globalThis.Error("value provided for field message.stateRevision of type uint64 too large");
-      }
-      writer.uint32(64).uint64(message.stateRevision);
-    }
-    return writer;
-  },
-  decode(input, length) {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = reader.__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    reader.__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === void 0 ? reader.len : reader.pos + length;
-      const message = createBaseSummaryResult();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-            message.requestId = reader.uint64();
-            continue;
-          }
-          case 2: {
-            if (tag !== 18) {
-              break;
-            }
-            message.sessionId = reader.string();
-            continue;
-          }
-          case 3: {
-            if (tag !== 26) {
-              break;
-            }
-            message.leafId = reader.string();
-            continue;
-          }
-          case 4: {
-            if (tag !== 34) {
-              break;
-            }
-            message.text = reader.string();
-            continue;
-          }
-          case 5: {
-            if (tag !== 42) {
-              break;
-            }
-            message.selectedModel = ModelSnapshot.decode(reader, reader.uint32());
-            continue;
-          }
-          case 6: {
-            if (tag !== 50) {
-              break;
-            }
-            message.reportedModel = ModelSnapshot.decode(reader, reader.uint32());
-            continue;
-          }
-          case 7: {
-            if (tag !== 58) {
-              break;
-            }
-            message.usage = Usage.decode(reader, reader.uint32());
-            continue;
-          }
-          case 8: {
-            if (tag !== 64) {
-              break;
-            }
-            message.stateRevision = reader.uint64();
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      reader.__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-  create(base) {
-    return SummaryResult.fromPartial(base ?? {});
-  },
-  fromPartial(object) {
-    const message = createBaseSummaryResult();
-    message.requestId = object.requestId !== void 0 && object.requestId !== null ? BigInt(object.requestId) : 0n;
-    message.sessionId = object.sessionId ?? "";
-    message.leafId = object.leafId ?? "";
-    message.text = object.text ?? "";
-    message.selectedModel = object.selectedModel !== void 0 && object.selectedModel !== null ? ModelSnapshot.fromPartial(object.selectedModel) : void 0;
-    message.reportedModel = object.reportedModel !== void 0 && object.reportedModel !== null ? ModelSnapshot.fromPartial(object.reportedModel) : void 0;
-    message.usage = object.usage !== void 0 && object.usage !== null ? Usage.fromPartial(object.usage) : void 0;
-    message.stateRevision = object.stateRevision !== void 0 && object.stateRevision !== null ? BigInt(object.stateRevision) : 0n;
-    return message;
-  }
-};
-function createBaseCommandError() {
-  return { requestId: 0n, code: 0, safeMessage: "" };
-}
-var CommandError = {
-  encode(message, writer = new BinaryWriter()) {
-    if (message.requestId !== 0n) {
-      if (BigInt.asUintN(64, message.requestId) !== message.requestId) {
-        throw new globalThis.Error("value provided for field message.requestId of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.requestId);
-    }
-    if (message.code !== 0) {
-      writer.uint32(16).int32(message.code);
-    }
-    if (message.safeMessage !== "") {
-      writer.uint32(26).string(message.safeMessage);
-    }
-    return writer;
-  },
-  decode(input, length) {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = reader.__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    reader.__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === void 0 ? reader.len : reader.pos + length;
-      const message = createBaseCommandError();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-            message.requestId = reader.uint64();
-            continue;
-          }
-          case 2: {
-            if (tag !== 16) {
-              break;
-            }
-            message.code = reader.int32();
-            continue;
-          }
-          case 3: {
-            if (tag !== 26) {
-              break;
-            }
-            message.safeMessage = reader.string();
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      reader.__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-  create(base) {
-    return CommandError.fromPartial(base ?? {});
-  },
-  fromPartial(object) {
-    const message = createBaseCommandError();
-    message.requestId = object.requestId !== void 0 && object.requestId !== null ? BigInt(object.requestId) : 0n;
-    message.code = object.code ?? 0;
-    message.safeMessage = object.safeMessage ?? "";
-    return message;
-  }
-};
-function createBaseCancelAcknowledged() {
-  return { requestId: 0n, disposition: 0 };
-}
-var CancelAcknowledged = {
-  encode(message, writer = new BinaryWriter()) {
-    if (message.requestId !== 0n) {
-      if (BigInt.asUintN(64, message.requestId) !== message.requestId) {
-        throw new globalThis.Error("value provided for field message.requestId of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.requestId);
-    }
-    if (message.disposition !== 0) {
-      writer.uint32(16).int32(message.disposition);
-    }
-    return writer;
-  },
-  decode(input, length) {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = reader.__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    reader.__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === void 0 ? reader.len : reader.pos + length;
-      const message = createBaseCancelAcknowledged();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-            message.requestId = reader.uint64();
-            continue;
-          }
-          case 2: {
-            if (tag !== 16) {
-              break;
-            }
-            message.disposition = reader.int32();
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      reader.__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-  create(base) {
-    return CancelAcknowledged.fromPartial(base ?? {});
-  },
-  fromPartial(object) {
-    const message = createBaseCancelAcknowledged();
-    message.requestId = object.requestId !== void 0 && object.requestId !== null ? BigInt(object.requestId) : 0n;
-    message.disposition = object.disposition ?? 0;
-    return message;
-  }
-};
-function createBaseSummarize() {
-  return { requestId: 0n, sessionId: "", leafId: "", model: void 0, deadlineMs: 0n, stateRevision: 0n };
-}
-var Summarize = {
-  encode(message, writer = new BinaryWriter()) {
-    if (message.requestId !== 0n) {
-      if (BigInt.asUintN(64, message.requestId) !== message.requestId) {
-        throw new globalThis.Error("value provided for field message.requestId of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.requestId);
-    }
-    if (message.sessionId !== "") {
-      writer.uint32(18).string(message.sessionId);
-    }
-    if (message.leafId !== "") {
-      writer.uint32(26).string(message.leafId);
-    }
-    if (message.model !== void 0) {
-      ModelSnapshot.encode(message.model, writer.uint32(34).fork()).join();
-    }
-    if (message.deadlineMs !== 0n) {
-      if (BigInt.asUintN(64, message.deadlineMs) !== message.deadlineMs) {
-        throw new globalThis.Error("value provided for field message.deadlineMs of type uint64 too large");
-      }
-      writer.uint32(40).uint64(message.deadlineMs);
-    }
-    if (message.stateRevision !== 0n) {
-      if (BigInt.asUintN(64, message.stateRevision) !== message.stateRevision) {
-        throw new globalThis.Error("value provided for field message.stateRevision of type uint64 too large");
-      }
-      writer.uint32(48).uint64(message.stateRevision);
-    }
-    return writer;
-  },
-  decode(input, length) {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = reader.__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    reader.__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === void 0 ? reader.len : reader.pos + length;
-      const message = createBaseSummarize();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-            message.requestId = reader.uint64();
-            continue;
-          }
-          case 2: {
-            if (tag !== 18) {
-              break;
-            }
-            message.sessionId = reader.string();
-            continue;
-          }
-          case 3: {
-            if (tag !== 26) {
-              break;
-            }
-            message.leafId = reader.string();
-            continue;
-          }
-          case 4: {
-            if (tag !== 34) {
-              break;
-            }
-            message.model = ModelSnapshot.decode(reader, reader.uint32());
-            continue;
-          }
-          case 5: {
-            if (tag !== 40) {
-              break;
-            }
-            message.deadlineMs = reader.uint64();
-            continue;
-          }
-          case 6: {
-            if (tag !== 48) {
-              break;
-            }
-            message.stateRevision = reader.uint64();
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      reader.__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-  create(base) {
-    return Summarize.fromPartial(base ?? {});
-  },
-  fromPartial(object) {
-    const message = createBaseSummarize();
-    message.requestId = object.requestId !== void 0 && object.requestId !== null ? BigInt(object.requestId) : 0n;
-    message.sessionId = object.sessionId ?? "";
-    message.leafId = object.leafId ?? "";
-    message.model = object.model !== void 0 && object.model !== null ? ModelSnapshot.fromPartial(object.model) : void 0;
-    message.deadlineMs = object.deadlineMs !== void 0 && object.deadlineMs !== null ? BigInt(object.deadlineMs) : 0n;
-    message.stateRevision = object.stateRevision !== void 0 && object.stateRevision !== null ? BigInt(object.stateRevision) : 0n;
-    return message;
-  }
-};
-function createBaseCancel() {
-  return { requestId: 0n, reason: 0 };
-}
-var Cancel = {
-  encode(message, writer = new BinaryWriter()) {
-    if (message.requestId !== 0n) {
-      if (BigInt.asUintN(64, message.requestId) !== message.requestId) {
-        throw new globalThis.Error("value provided for field message.requestId of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.requestId);
-    }
-    if (message.reason !== 0) {
-      writer.uint32(16).int32(message.reason);
-    }
-    return writer;
-  },
-  decode(input, length) {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = reader.__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    reader.__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === void 0 ? reader.len : reader.pos + length;
-      const message = createBaseCancel();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-            message.requestId = reader.uint64();
-            continue;
-          }
-          case 2: {
-            if (tag !== 16) {
-              break;
-            }
-            message.reason = reader.int32();
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      reader.__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-  create(base) {
-    return Cancel.fromPartial(base ?? {});
-  },
-  fromPartial(object) {
-    const message = createBaseCancel();
-    message.requestId = object.requestId !== void 0 && object.requestId !== null ? BigInt(object.requestId) : 0n;
-    message.reason = object.reason ?? 0;
     return message;
   }
 };
@@ -27263,7 +26436,6 @@ var import_grpc_js2 = __toESM(require_src3(), 1);
 // src/protocol.ts
 var PROTOCOL_VERSION = 1;
 var CAPABILITY_LIFECYCLE = "pi.lifecycle.v1";
-var CAPABILITY_SUMMARY = "pi.summary.v1";
 var MAX_HELLO_BYTES = 16 * 1024;
 var MAX_METADATA_BYTES = 8 * 1024;
 var MAX_MESSAGE_BYTES = 256 * 1024;
@@ -27272,9 +26444,9 @@ var MAX_QUEUED_BYTES = 256 * 1024;
 var BLOCKED_SEND_TIMEOUT_MS = 5e3;
 var HELLO_DEADLINE_MS = 5e3;
 var MAX_JOURNAL_RECORDS = 64;
-var MAX_SAFE_MESSAGE_BYTES = 2 * 1024;
-var MAX_SUMMARY_TEXT_BYTES = 128 * 1024;
-var SUMMARY_DEADLINE_MS = 12e4;
+var RECONNECT_BASE_MS = 500;
+var RECONNECT_MAX_MS = 3e4;
+var RECONNECT_STABLE_MS = 3e4;
 var METADATA_TOKEN_KEY = "phi-pi-token";
 var METADATA_PANE_KEY = "phi-pi-pane";
 var METADATA_PROCESS_KEY = "phi-pi-process";
@@ -27510,541 +26682,6 @@ var BridgeChannel = class {
   }
 };
 
-// src/summary.ts
-var SUMMARY_INSTRUCTIONS = "Include goals, decisions, progress, and next steps.";
-var RESERVE_TOKENS = 4096;
-var SETTLE_GRACE_MS = 3e4;
-var NO_RETRY = { enabled: false, maxRetries: 0, baseDelayMs: 0 };
-function hasSummarySurface(view) {
-  return typeof view.sessionManager.getBranch === "function" && typeof view.modelRegistry?.streamSimple === "function" && typeof view.isIdle === "function" && typeof view.hasPendingMessages === "function" && typeof view.getContextUsage === "function";
-}
-function read(fn) {
-  try {
-    return fn();
-  } catch {
-    return void 0;
-  }
-}
-function isRecord(value) {
-  return typeof value === "object" && value !== null;
-}
-function optionalUint64(value) {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > Number.MAX_SAFE_INTEGER) {
-    return void 0;
-  }
-  return BigInt(value);
-}
-var SummaryAdapter = class {
-  constructor(deps, tracker = new CommandTracker()) {
-    this.deps = deps;
-    this.tracker = tracker;
-  }
-  deps;
-  tracker;
-  active = null;
-  /** Abort the in-flight summary, if any, for a host-side reason. */
-  cancelActive() {
-    if (this.active !== null) this.tracker.noteCancel(this.active, "host");
-  }
-  get hasActive() {
-    return this.active !== null;
-  }
-  /** Handle one bridge Cancel. Unknown IDs ack immediately as unknown. */
-  handleCancel(requestId) {
-    if (!this.tracker.noteCancel(requestId, "phi")) {
-      this.deps.send({
-        $case: "cancelAcknowledged",
-        value: CancelAcknowledged.create({
-          requestId,
-          disposition: 3 /* SUMMARY_TERMINATION_UNKNOWN */
-        })
-      });
-    }
-  }
-  /** Run one Summarize command to a terminal frame. Never throws. */
-  async handleSummarize(cmd, helpers) {
-    const id = cmd.requestId;
-    if (this.tracker.noteSummarize(id) === "duplicate") {
-      this.fail(
-        id,
-        9 /* COMMAND_ERROR_DUPLICATE_REQUEST */,
-        "duplicate request"
-      );
-      return;
-    }
-    if (helpers === null) {
-      this.fail(
-        id,
-        3 /* COMMAND_ERROR_UNSUPPORTED_CAPABILITY */,
-        "summary not available"
-      );
-      return;
-    }
-    const view = this.deps.getView();
-    if (view === null || !hasSummarySurface(view)) {
-      this.fail(
-        id,
-        8 /* COMMAND_ERROR_INTERNAL */,
-        "no session context"
-      );
-      return;
-    }
-    if (this.active !== null) {
-      this.fail(
-        id,
-        1 /* COMMAND_ERROR_BUSY */,
-        "summary already running"
-      );
-      return;
-    }
-    const controller = new AbortController();
-    if (!this.tracker.setController(id, controller)) {
-      this.finishCancel(id);
-      return;
-    }
-    this.active = id;
-    const deadlineMs = clampDeadline(cmd.deadlineMs);
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, deadlineMs);
-    timer.unref?.();
-    let done = false;
-    const finish = (outcome2) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      clearTimeout(grace);
-      if (this.active === id) this.active = null;
-      this.sendOutcome(id, outcome2, cmd);
-      this.tracker.complete(id);
-    };
-    const grace = setTimeout(() => {
-      controller.abort();
-      if (this.tracker.phiCancelled(id)) {
-        finish({
-          kind: "ack",
-          disposition: 2 /* SUMMARY_TERMINATION_ENDED */
-        });
-      } else if (this.tracker.isCancelled(id)) {
-        finish({
-          kind: "error",
-          code: 5 /* COMMAND_ERROR_CANCELED */,
-          message: "summary cancelled"
-        });
-      } else {
-        finish({
-          kind: "error",
-          code: 6 /* COMMAND_ERROR_DEADLINE_EXPIRED */,
-          message: "summary deadline expired"
-        });
-      }
-    }, deadlineMs + SETTLE_GRACE_MS);
-    grace.unref?.();
-    const started = Date.now();
-    const outcome = await this.run(
-      id,
-      cmd,
-      view,
-      helpers,
-      controller,
-      started,
-      deadlineMs,
-      () => timedOut
-    );
-    finish(outcome);
-  }
-  async run(id, cmd, view, helpers, controller, started, deadlineMs, isTimedOut) {
-    if (!this.checkIdle(view) || this.tracker.isCancelled(id)) {
-      return this.gateOutcome(
-        id,
-        1 /* COMMAND_ERROR_BUSY */,
-        "agent is busy"
-      );
-    }
-    const model = read(() => view.model) ?? void 0;
-    if (model === void 0) {
-      return this.gateOutcome(
-        id,
-        8 /* COMMAND_ERROR_INTERNAL */,
-        "no model selected"
-      );
-    }
-    if (!this.checkSnapshot(cmd, view)) {
-      return this.gateOutcome(
-        id,
-        2 /* COMMAND_ERROR_STALE_SNAPSHOT */,
-        "session changed"
-      );
-    }
-    const sessionId = read(() => view.sessionManager.getSessionId()) ?? "";
-    const leafId = read(() => view.sessionManager.getLeafId()) ?? null;
-    let branch;
-    try {
-      branch = view.sessionManager.getBranch();
-    } catch {
-      return this.gateOutcome(
-        id,
-        8 /* COMMAND_ERROR_INTERNAL */,
-        "cannot read session"
-      );
-    }
-    let messages;
-    try {
-      messages = helpers.buildSessionContext(
-        branch,
-        leafId ?? void 0
-      ).messages;
-    } catch (error) {
-      this.deps.logError("buildSessionContext failed", error);
-      return this.gateOutcome(
-        id,
-        8 /* COMMAND_ERROR_INTERNAL */,
-        "cannot read session"
-      );
-    }
-    if (messages.length === 0) {
-      return this.gateOutcome(
-        id,
-        8 /* COMMAND_ERROR_INTERNAL */,
-        "session is empty"
-      );
-    }
-    const budget = this.checkBudget(view, messages);
-    if (budget !== null) {
-      return this.gateOutcome(
-        id,
-        7 /* COMMAND_ERROR_LIMIT */,
-        budget
-      );
-    }
-    const observed = {
-      bytes: 0,
-      limitHit: false,
-      stopReason: null,
-      model: null
-    };
-    let observedDone = null;
-    const registry = view.modelRegistry;
-    const streamFn = (streamModel, context, options) => {
-      const remaining = Math.max(1, deadlineMs - (Date.now() - started));
-      const stream = registry.streamSimple(streamModel, context, {
-        ...options,
-        maxRetries: 0,
-        timeoutMs: remaining,
-        signal: controller.signal
-      });
-      observedDone = this.observe(stream, observed, controller).catch(
-        () => {
-        }
-      );
-      return stream;
-    };
-    let text;
-    let usage;
-    try {
-      const result = await helpers.generateSummaryWithUsage(
-        messages,
-        model,
-        RESERVE_TOKENS,
-        void 0,
-        void 0,
-        controller.signal,
-        SUMMARY_INSTRUCTIONS,
-        void 0,
-        read(() => view.thinkingLevel) ?? void 0,
-        streamFn,
-        void 0,
-        NO_RETRY,
-        void 0,
-        void 0
-      );
-      text = result.text;
-      usage = result.usage;
-    } catch (error) {
-      if (observedDone !== null) await observedDone;
-      return this.settledOutcome(
-        id,
-        isTimedOut,
-        observed,
-        () => {
-          this.deps.logError(
-            "generateSummaryWithUsage failed",
-            error
-          );
-          return {
-            kind: "error",
-            code: 4 /* COMMAND_ERROR_MODEL_FAILURE */,
-            message: "model request failed"
-          };
-        },
-        controller.signal.aborted
-      );
-    }
-    if (observedDone !== null) await observedDone;
-    return this.settledOutcome(
-      id,
-      isTimedOut,
-      observed,
-      () => {
-        if (observed.limitHit || Buffer.byteLength(text, "utf8") > MAX_SUMMARY_TEXT_BYTES) {
-          return {
-            kind: "error",
-            code: 7 /* COMMAND_ERROR_LIMIT */,
-            message: "summary too large"
-          };
-        }
-        if (text === "") {
-          return {
-            kind: "error",
-            code: 4 /* COMMAND_ERROR_MODEL_FAILURE */,
-            message: "empty summary"
-          };
-        }
-        return {
-          kind: "result",
-          text,
-          usage,
-          sessionId,
-          leafId: leafId ?? "",
-          reported: observed.model
-        };
-      },
-      controller.signal.aborted
-    );
-  }
-  /**
-   * Classify a settled invocation. A bridge Cancel owns an ack;
-   * otherwise the deadline, then the output limit, then any
-   * cancellation wins over the natural outcome, so cancellation
-   * never yields a summary and a self-abort for the limit reports
-   * the limit, not a cancellation.
-   */
-  settledOutcome(id, isTimedOut, observed, natural, aborted) {
-    if (this.tracker.phiCancelled(id)) {
-      return {
-        kind: "ack",
-        disposition: 2 /* SUMMARY_TERMINATION_ENDED */
-      };
-    }
-    if (isTimedOut()) {
-      return {
-        kind: "error",
-        code: 6 /* COMMAND_ERROR_DEADLINE_EXPIRED */,
-        message: "summary deadline expired"
-      };
-    }
-    if (observed.limitHit) {
-      return {
-        kind: "error",
-        code: 7 /* COMMAND_ERROR_LIMIT */,
-        message: "summary too large"
-      };
-    }
-    if (this.tracker.isCancelled(id) || aborted || observed.stopReason === "aborted") {
-      return {
-        kind: "error",
-        code: 5 /* COMMAND_ERROR_CANCELED */,
-        message: "summary cancelled"
-      };
-    }
-    return natural();
-  }
-  /** Send one terminal outcome frame. Called exactly once per run. */
-  sendOutcome(id, outcome, cmd) {
-    if (outcome.kind === "ack") {
-      this.deps.send({
-        $case: "cancelAcknowledged",
-        value: CancelAcknowledged.create({
-          requestId: id,
-          disposition: outcome.disposition
-        })
-      });
-      return;
-    }
-    if (outcome.kind === "error") {
-      this.deps.send({
-        $case: "commandError",
-        value: CommandError.create({
-          requestId: id,
-          code: outcome.code,
-          safeMessage: outcome.message
-        })
-      });
-      return;
-    }
-    const view = this.deps.getView();
-    const model = view?.model;
-    this.deps.send({
-      $case: "summaryResult",
-      value: SummaryResult.create({
-        requestId: id,
-        sessionId: outcome.sessionId,
-        leafId: outcome.leafId,
-        text: outcome.text,
-        selectedModel: cmd.model,
-        reportedModel: model === void 0 || model === null ? void 0 : ModelSnapshot.create({
-          provider: model.provider,
-          model: outcome.reported ?? model.id
-        }),
-        usage: mapUsage(outcome.usage),
-        stateRevision: this.deps.getRevision()
-      })
-    });
-  }
-  checkIdle(view) {
-    if (this.deps.isCompacting()) return false;
-    if (read(() => view.isIdle()) !== true) return false;
-    if (read(() => view.hasPendingMessages()) !== false) return false;
-    return true;
-  }
-  checkSnapshot(cmd, view) {
-    const sessionId = read(() => view.sessionManager.getSessionId());
-    if (sessionId === void 0 || cmd.sessionId !== sessionId)
-      return false;
-    const leafId = read(() => view.sessionManager.getLeafId()) ?? "";
-    if (cmd.leafId !== (leafId ?? "")) return false;
-    const model = read(() => view.model) ?? void 0;
-    if (cmd.model === void 0) return model === void 0;
-    if (model === void 0) return false;
-    return cmd.model.provider === model.provider && cmd.model.model === model.id;
-  }
-  /**
-   * Refuse calls that cannot fit the window. Returns a safe message
-   * when over budget, null when the call may proceed. Unknown usage
-   * falls back to a rough length estimate so a fresh compaction does
-   * not refuse a summarizable session.
-   */
-  checkBudget(view, messages) {
-    const usage = read(() => view.getContextUsage());
-    const window2 = usage?.contextWindow;
-    if (typeof window2 !== "number" || !Number.isFinite(window2) || window2 <= 0) {
-      return null;
-    }
-    let tokens = usage?.tokens;
-    if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens < 0) {
-      tokens = estimateTokens(messages);
-    }
-    if (tokens + RESERVE_TOKENS > window2) {
-      return "session exceeds the context budget";
-    }
-    return null;
-  }
-  async observe(stream, observed, controller) {
-    const tapped = stream.result().then(
-      (message) => {
-        if (!isRecord(message)) return;
-        if (typeof message["stopReason"] === "string") {
-          observed.stopReason = message["stopReason"];
-        }
-        if (typeof message["model"] === "string") {
-          observed.model = message["model"];
-        }
-      },
-      () => {
-      }
-    );
-    for await (const event of stream) {
-      if (!isRecord(event)) continue;
-      if (event["type"] !== "text_delta" || typeof event["delta"] !== "string")
-        continue;
-      observed.bytes += Buffer.byteLength(
-        event["delta"],
-        "utf8"
-      );
-      if (observed.bytes > MAX_SUMMARY_TEXT_BYTES) {
-        observed.limitHit = true;
-        controller.abort();
-        break;
-      }
-    }
-    await tapped;
-  }
-  /** A pre-work cancel owes an ack when Phi asked, else a cancel error. */
-  finishCancel(id) {
-    if (this.tracker.phiCancelled(id)) {
-      this.ack(id, 2 /* SUMMARY_TERMINATION_ENDED */);
-    } else {
-      this.fail(
-        id,
-        5 /* COMMAND_ERROR_CANCELED */,
-        "summary cancelled"
-      );
-    }
-    this.tracker.complete(id);
-  }
-  /** Cancel wins over any gate failure once the run owns the request. */
-  gateOutcome(id, code, message) {
-    if (this.tracker.phiCancelled(id)) {
-      return {
-        kind: "ack",
-        disposition: 2 /* SUMMARY_TERMINATION_ENDED */
-      };
-    }
-    if (this.tracker.isCancelled(id)) {
-      return {
-        kind: "error",
-        code: 5 /* COMMAND_ERROR_CANCELED */,
-        message: "summary cancelled"
-      };
-    }
-    return { kind: "error", code, message };
-  }
-  fail(id, code, safeMessage) {
-    this.deps.send({
-      $case: "commandError",
-      value: CommandError.create({ requestId: id, code, safeMessage })
-    });
-    if (this.active === id) this.active = null;
-    this.tracker.complete(id);
-  }
-  ack(id, disposition) {
-    this.deps.send({
-      $case: "cancelAcknowledged",
-      value: CancelAcknowledged.create({ requestId: id, disposition })
-    });
-    if (this.active === id) this.active = null;
-    this.tracker.complete(id);
-  }
-};
-function clampDeadline(deadlineMs) {
-  if (deadlineMs <= 0n) return SUMMARY_DEADLINE_MS;
-  if (deadlineMs > BigInt(SUMMARY_DEADLINE_MS)) return SUMMARY_DEADLINE_MS;
-  const ms = Number(deadlineMs);
-  return Number.isSafeInteger(ms) && ms > 0 ? ms : SUMMARY_DEADLINE_MS;
-}
-function estimateTokens(messages) {
-  let chars = 0;
-  for (const message of messages) {
-    if (!isRecord(message) || !Array.isArray(message["content"])) continue;
-    for (const block of message["content"]) {
-      if (!isRecord(block)) continue;
-      if (block["type"] === "text" && typeof block["text"] === "string") {
-        chars += block["text"].length;
-      }
-    }
-  }
-  return Math.ceil(chars / 4);
-}
-function mapUsage(usage) {
-  if (!isRecord(usage)) return void 0;
-  const input = optionalUint64(usage["input"]);
-  const output = optionalUint64(usage["output"]);
-  const cost = isRecord(usage["cost"]) ? usage["cost"] : void 0;
-  const total = cost?.["total"];
-  const costUsd = typeof total === "number" && Number.isFinite(total) ? total : void 0;
-  if (input === void 0 && output === void 0 && costUsd === void 0) {
-    return void 0;
-  }
-  return Usage.create({
-    inputTokens: input,
-    outputTokens: output,
-    costUsd,
-    costFromPriceTables: costUsd !== void 0
-  });
-}
-
 // src/runtime.ts
 var TERMINAL_STATUS_CODES = /* @__PURE__ */ new Set([
   16,
@@ -28059,23 +26696,7 @@ var TERMINAL_STATUS_CODES = /* @__PURE__ */ new Set([
 var Runtime = class {
   constructor(opts) {
     this.opts = opts;
-    this.backoffMs = opts.backoffBaseMs ?? 250;
-    this.tracker = opts.tracker ?? new CommandTracker();
-    this.summaries = new SummaryAdapter(
-      {
-        getView: () => this.lastView,
-        isCompacting: () => this.compacting,
-        getRevision: () => this.revision,
-        send: (payload) => this.send({
-          paneId: this.opts.creds.pane,
-          processId: this.opts.creds.process,
-          runtimeGeneration: this.opts.generation,
-          payload
-        }),
-        logError: (message, error) => console.error(`[pi-phi] ${message}`, error)
-      },
-      this.tracker
-    );
+    this.backoffMs = opts.backoffBaseMs ?? RECONNECT_BASE_MS;
   }
   opts;
   runtimeId = (0, import_node_crypto.randomUUID)();
@@ -28089,11 +26710,10 @@ var Runtime = class {
   sessionId = "";
   leafId = "";
   model;
-  lastView = null;
-  compacting = false;
-  summaryAvailable = false;
-  tracker;
-  summaries;
+  /** Final assistant stop reason of the current run, if observed. */
+  lastStopReason = null;
+  /** When the current stream was accepted; null while connecting. */
+  connectedAt = null;
   shutdownRequested = false;
   backoffMs;
   retryTimer = null;
@@ -28105,10 +26725,9 @@ var Runtime = class {
     this.noteView(ctx);
     void this.attempt();
   }
-  /** A replacement session invalidates in-flight summaries. */
+  /** A replacement session refreshes identities and the snapshot. */
   onSessionStart(ctx) {
     if (this.shutdownRequested) return;
-    this.summaries.cancelActive();
     this.noteView(ctx);
     this.sendSnapshot(
       this.running ? 2 /* LOGICAL_STATE_RUNNING */ : 1 /* LOGICAL_STATE_IDLE */
@@ -28117,11 +26736,11 @@ var Runtime = class {
   /** Map one agent_start edge. Extra starts continue the current run. */
   onAgentStart(ctx) {
     if (this.shutdownRequested) return;
-    this.summaries.cancelActive();
     this.noteView(ctx);
     if (!this.running) {
       this.running = true;
       this.runId += 1n;
+      this.lastStopReason = null;
     }
     const sequence = this.nextSeq();
     this.appendJournal({
@@ -28145,15 +26764,24 @@ var Runtime = class {
     this.sendSnapshot(2 /* LOGICAL_STATE_RUNNING */);
   }
   /**
+   * Record the final assistant stop reason of the current attempt.
+   * Retries overwrite; the last evidence before settlement wins.
+   */
+  onAgentEnd(stopReason) {
+    if (this.shutdownRequested || !this.running) return;
+    this.lastStopReason = stopReason;
+  }
+  /**
    * Map one agent_settled edge. A settlement with no observed run is
    * ignored: unobserved work must not ring the bell. The outcome comes
-   * from this event only; an old outcome is never reused.
+   * from this event only; an old outcome is never reused. Without
+   * abort evidence the outcome stays explicitly unknown.
    */
   onAgentSettled(ctx, aborted) {
     if (this.shutdownRequested || !this.running) return;
     this.noteView(ctx);
     const sequence = this.nextSeq();
-    const outcome = aborted ? 3 /* RUN_OUTCOME_ABORTED */ : 1 /* RUN_OUTCOME_COMPLETED */;
+    const outcome = aborted ? 3 /* RUN_OUTCOME_ABORTED */ : this.settleOutcome();
     this.appendJournal({
       sequence,
       runId: this.runId,
@@ -28176,35 +26804,47 @@ var Runtime = class {
     });
     this.sendSnapshot(1 /* LOGICAL_STATE_IDLE */);
   }
-  /** A model change invalidates in-flight summaries and the snapshot. */
+  /**
+   * Classify a non-aborted settlement from the final assistant stop
+   * reason. Anything but a clean stop stays explicitly unknown or
+   * error; success is never assumed.
+   */
+  settleOutcome() {
+    switch (this.lastStopReason) {
+      case "stop":
+        return 1 /* RUN_OUTCOME_COMPLETED */;
+      case "error":
+        return 2 /* RUN_OUTCOME_ERROR */;
+      case "aborted":
+        return 3 /* RUN_OUTCOME_ABORTED */;
+      default:
+        return 0 /* RUN_OUTCOME_UNSPECIFIED */;
+    }
+  }
+  /** A model change refreshes identities and the snapshot. */
   onModelSelect(ctx) {
     if (this.shutdownRequested) return;
-    this.summaries.cancelActive();
     this.noteView(ctx);
     this.sendSnapshot(
       this.running ? 2 /* LOGICAL_STATE_RUNNING */ : 1 /* LOGICAL_STATE_IDLE */
     );
   }
-  /** Tree navigation invalidates in-flight summaries and the snapshot. */
+  /** Tree navigation refreshes identities and the snapshot. */
   onSessionTree(ctx) {
     if (this.shutdownRequested) return;
-    this.summaries.cancelActive();
     this.noteView(ctx);
     this.sendSnapshot(
       this.running ? 2 /* LOGICAL_STATE_RUNNING */ : 1 /* LOGICAL_STATE_IDLE */
     );
   }
-  /** Compaction starts: no summary may run against a moving session. */
+  /** Compaction starts: refresh identities; the end publishes. */
   onCompactStart(ctx) {
     if (this.shutdownRequested) return;
-    this.compacting = true;
-    this.summaries.cancelActive();
     this.noteView(ctx);
   }
   /** Compaction ends: publish the post-compaction snapshot. */
   onCompactEnd(ctx) {
     if (this.shutdownRequested) return;
-    this.compacting = false;
     this.noteView(ctx);
     this.sendSnapshot(
       this.running ? 2 /* LOGICAL_STATE_RUNNING */ : 1 /* LOGICAL_STATE_IDLE */
@@ -28218,7 +26858,6 @@ var Runtime = class {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
     }
-    this.tracker.resetRuntime();
     this.channel?.close();
     this.channel = null;
     this.starting = false;
@@ -28229,16 +26868,8 @@ var Runtime = class {
   get lastSequence() {
     return this.seq;
   }
-  /**
-   * Cache the latest live view and refresh event-time identities.
-   * The summary capability is fixed at the first view: it needs
-   * injected helpers plus a host surface that exposes summaries.
-   */
+  /** Refresh event-time identities from the live view. */
   noteView(ctx) {
-    this.lastView = ctx;
-    if (this.opts.helpers != null && hasSummarySurface(ctx)) {
-      this.summaryAvailable = true;
-    }
     this.refreshIdentities(ctx);
   }
   refreshIdentities(ctx) {
@@ -28280,8 +26911,7 @@ var Runtime = class {
         outcome: row.outcome
       })),
       journalGap: this.journalGap,
-      stateRevision: this.revision,
-      outstandingSummaries: []
+      stateRevision: this.revision
     });
   }
   hello() {
@@ -28293,13 +26923,11 @@ var Runtime = class {
         $case: "hello",
         value: Hello.create({
           protocolVersion: PROTOCOL_VERSION,
-          packageVersion: "0.1.0",
-          hostVersion: "",
           sessionId: this.sessionId,
           runtimeId: this.runtimeId,
-          capabilities: this.summaryAvailable ? [CAPABILITY_LIFECYCLE, CAPABILITY_SUMMARY] : [CAPABILITY_LIFECYCLE],
+          capabilities: [CAPABILITY_LIFECYCLE],
           currentState: this.snapshot(
-            1 /* LOGICAL_STATE_IDLE */
+            this.running ? 2 /* LOGICAL_STATE_RUNNING */ : 1 /* LOGICAL_STATE_IDLE */
           ),
           journalFirstSequence: this.journal.length > 0 ? this.journal[0].sequence : 0n,
           journalLastSequence: this.seq
@@ -28337,40 +26965,35 @@ var Runtime = class {
     try {
       await channel.connect(this.hello());
     } catch {
-      this.channel = null;
+      channel.close();
+      if (this.channel === channel) this.channel = null;
       if (!this.shutdownRequested) this.scheduleRetry();
       return;
     } finally {
       this.starting = false;
     }
-    this.backoffMs = this.opts.backoffBaseMs ?? 250;
+    this.connectedAt = Date.now();
   }
-  onServerMessage(msg) {
-    const payload = msg.payload;
-    if (payload?.$case === "summarize") {
-      void this.summaries.handleSummarize(
-        payload.value,
-        this.opts.helpers ?? null
-      );
-      return;
-    }
-    if (payload?.$case === "cancel") {
-      this.summaries.handleCancel(payload.value.requestId);
-      return;
-    }
+  onServerMessage(_msg) {
   }
   onStreamEnd(status) {
     this.channel?.close();
     this.channel = null;
-    this.tracker.resetRuntime();
+    if (this.connectedAt !== null) {
+      if (Date.now() - this.connectedAt >= RECONNECT_STABLE_MS) {
+        this.backoffMs = this.opts.backoffBaseMs ?? RECONNECT_BASE_MS;
+      }
+      this.connectedAt = null;
+    }
     if (this.shutdownRequested) return;
     if (status && TERMINAL_STATUS_CODES.has(status.code)) return;
     this.scheduleRetry();
   }
   scheduleRetry() {
     if (this.shutdownRequested || this.retryTimer || this.channel) return;
-    const max = this.opts.backoffMaxMs ?? 1e4;
-    const delay = Math.min(this.backoffMs, max);
+    const max = this.opts.backoffMaxMs ?? RECONNECT_MAX_MS;
+    const ceiling = Math.min(this.backoffMs, max);
+    const delay = ceiling / 2 + Math.random() * (ceiling / 2);
     this.backoffMs = Math.min(this.backoffMs * 2, max);
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
@@ -28410,35 +27033,56 @@ function contextView(ctx) {
   return {
     sessionManager: {
       getSessionId: () => ctx.sessionManager.getSessionId(),
-      getLeafId: () => ctx.sessionManager.getLeafId(),
-      getBranch: () => ctx.sessionManager.getBranch()
+      getLeafId: () => ctx.sessionManager.getLeafId()
     },
     get model() {
       return ctx.model ?? void 0;
-    },
-    modelRegistry: ctx.modelRegistry,
-    thinkingLevel: ctx.thinkingLevel ?? void 0,
-    isIdle: () => ctx.isIdle(),
-    hasPendingMessages: () => ctx.hasPendingMessages(),
-    getContextUsage: () => ctx.getContextUsage()
+    }
   };
 }
-function settledAbortedForTest(event) {
+function settledAborted(event) {
   if (typeof event !== "object" || event === null) return false;
   return event.aborted === true;
 }
-function createExtension(pi, deps = {}) {
-  createExtensionWithHelpers(pi, null, deps);
+function agentEndStopReason(event) {
+  if (!isRecord(event) || !Array.isArray(event["messages"])) return null;
+  const messages = event["messages"];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (!isRecord(message) || message["role"] !== "assistant") continue;
+    return typeof message["stopReason"] === "string" ? message["stopReason"] : null;
+  }
+  return null;
 }
-function createExtensionWithHelpers(pi, helpers, deps = {}) {
+function isRecord(value) {
+  return typeof value === "object" && value !== null;
+}
+function createExtension(pi, deps = {}) {
   const envCreds = readCredsFromEnv();
   if (!envCreds && !ownerSlot().creds) return;
   let runtime = null;
   let claimed = false;
+  let sessionId = null;
+  const make = deps.makeRuntime ?? ((c, g) => new Runtime({ creds: c, generation: g }));
   pi.on("session_start", (_event, ctx) => {
     const slot = ownerSlot();
     if (slot.active) {
-      runtime?.onSessionStart(contextView(ctx));
+      if (!claimed || runtime === null) return;
+      let next = null;
+      try {
+        next = ctx.sessionManager.getSessionId();
+      } catch {
+        next = null;
+      }
+      if (next === null || next === sessionId) {
+        runtime.onSessionStart(contextView(ctx));
+        return;
+      }
+      runtime.shutdown();
+      slot.generation += 1n;
+      sessionId = next;
+      runtime = make(slot.creds, slot.generation);
+      runtime.start(contextView(ctx));
       return;
     }
     const creds = readCredsFromEnv() ?? slot.creds;
@@ -28448,17 +27092,22 @@ function createExtensionWithHelpers(pi, helpers, deps = {}) {
     slot.active = true;
     slot.generation += 1n;
     claimed = true;
-    if (slot.tracker === void 0) slot.tracker = new CommandTracker();
-    const tracker = slot.tracker;
-    const make = deps.makeRuntime ?? ((c, g) => new Runtime({ creds: c, generation: g, helpers, tracker }));
+    try {
+      sessionId = ctx.sessionManager.getSessionId();
+    } catch {
+      sessionId = null;
+    }
     runtime = make(creds, slot.generation);
     runtime.start(contextView(ctx));
   });
   pi.on("agent_start", (_event, ctx) => {
     runtime?.onAgentStart(contextView(ctx));
   });
+  pi.on("agent_end", (event) => {
+    runtime?.onAgentEnd(agentEndStopReason(event));
+  });
   pi.on("agent_settled", (event, ctx) => {
-    runtime?.onAgentSettled(contextView(ctx), settledAbortedForTest(event));
+    runtime?.onAgentSettled(contextView(ctx), settledAborted(event));
   });
   pi.on("model_select", (_event, ctx) => {
     runtime?.onModelSelect(contextView(ctx));
@@ -28488,9 +27137,7 @@ function extension_default(pi) {
 }
 
 // src/extension-entry.cts
-var entry = extension_default;
-entry.withHelpers = (helpers) => (pi) => createExtensionWithHelpers(pi, helpers);
-module.exports = entry;
+module.exports = extension_default;
 /*! Bundled license information:
 
 long/umd/index.js:

@@ -50,6 +50,16 @@ function mockCtx(): ExtensionContext {
     } as unknown as ExtensionContext;
 }
 
+function mockCtxWithSession(sessionId: string): ExtensionContext {
+    return {
+        sessionManager: {
+            getSessionId: () => sessionId,
+            getLeafId: () => 'leaf',
+        },
+        model: { provider: 'p', id: 'm' },
+    } as unknown as ExtensionContext;
+}
+
 function recordingRuntime(): { calls: string[]; runtime: FactoryRuntime } {
     const calls: string[] = [];
     return {
@@ -58,6 +68,7 @@ function recordingRuntime(): { calls: string[]; runtime: FactoryRuntime } {
             start: () => calls.push('start'),
             onSessionStart: () => calls.push('session_start'),
             onAgentStart: () => calls.push('agent_start'),
+            onAgentEnd: (stop) => calls.push(`agent_end:${stop}`),
             onAgentSettled: (_ctx, aborted) => calls.push(`settled:${aborted}`),
             onModelSelect: () => calls.push('model_select'),
             onSessionTree: () => calls.push('session_tree'),
@@ -115,6 +126,7 @@ describe('factory inertness', () => {
         const { pi, handlers } = mockPi();
         createExtension(pi);
         expect([...handlers.keys()].sort()).toEqual([
+            'agent_end',
             'agent_settled',
             'agent_start',
             'model_select',
@@ -171,7 +183,7 @@ describe('owner guard', () => {
         const reloaded = mockPi();
         const rec2 = recordingRuntime();
         createExtension(reloaded.pi, { makeRuntime: () => rec2.runtime });
-        expect(reloaded.handlers.size).toBe(9);
+        expect(reloaded.handlers.size).toBe(10);
         reloaded.handlers.get('session_start')!({}, ctx as never);
         expect(rec2.calls).toEqual(['start']);
     });
@@ -189,5 +201,79 @@ describe('owner guard', () => {
         );
         handlers.get('agent_settled')!({ type: 'agent_settled' }, ctx as never);
         expect(rec.calls).toEqual(['start', 'settled:true', 'settled:false']);
+    });
+
+    it('forwards the final assistant stop reason from agent_end', () => {
+        setEnv();
+        const { pi, handlers } = mockPi();
+        const rec = recordingRuntime();
+        createExtension(pi, { makeRuntime: () => rec.runtime });
+        const ctx = mockCtx();
+        handlers.get('session_start')!({}, ctx as never);
+        handlers.get('agent_end')!(
+            {
+                type: 'agent_end',
+                messages: [
+                    { role: 'user', content: 'hi' },
+                    { role: 'assistant', content: [], stopReason: 'stop' },
+                    { role: 'assistant', content: [], stopReason: 'error' },
+                ],
+            },
+            ctx as never,
+        );
+        handlers.get('agent_end')!(
+            { type: 'agent_end', messages: [{ role: 'user' }] },
+            ctx as never,
+        );
+        handlers.get('agent_end')!({ type: 'agent_end' }, ctx as never);
+        expect(rec.calls).toEqual([
+            'start',
+            'agent_end:error',
+            'agent_end:null',
+            'agent_end:null',
+        ]);
+    });
+
+    it('retires the runtime on session replacement with a new generation', () => {
+        setEnv();
+        const { pi, handlers } = mockPi();
+        const generations: bigint[] = [];
+        const runtimes: FactoryRuntime[] = [];
+        const rec = recordingRuntime();
+        createExtension(pi, {
+            makeRuntime: (_c, g) => {
+                generations.push(g);
+                const r = recordingRuntime();
+                runtimes.push(r.runtime);
+                return r.runtime;
+            },
+        });
+        void rec;
+        handlers.get('session_start')!(
+            {},
+            mockCtxWithSession('sess-a') as never,
+        );
+        handlers.get('session_start')!(
+            {},
+            mockCtxWithSession('sess-b') as never,
+        );
+        expect(generations).toEqual([1n, 2n]);
+        expect(runtimes).toHaveLength(2);
+    });
+
+    it('refreshes the view on a duplicate session announcement', () => {
+        setEnv();
+        const { pi, handlers } = mockPi();
+        const generations: bigint[] = [];
+        createExtension(pi, {
+            makeRuntime: (_c, g) => {
+                generations.push(g);
+                return recordingRuntime().runtime;
+            },
+        });
+        const ctx = mockCtxWithSession('sess-a');
+        handlers.get('session_start')!({}, ctx as never);
+        handlers.get('session_start')!({}, ctx as never);
+        expect(generations).toEqual([1n]);
     });
 });

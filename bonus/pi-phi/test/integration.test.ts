@@ -1,19 +1,13 @@
-// M1 Go ↔ TypeScript interop over native Unix IPC. Spawns the Go
+// Go ↔ TypeScript interop over native Unix IPC. Spawns the Go
 // testserver, drives 64 independent synthetic runtimes, and asserts
-// auth, correlation, cancellation, concurrency, slow-peer, and endpoint
-// behavior with explicit gRPC codes. No mocks, no TCP, no fake timers.
+// auth, lifecycle isolation, slow-peer, and endpoint behavior with
+// explicit gRPC codes. No mocks, no TCP, no fake timers.
 
 import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { status as GrpcStatus } from '@grpc/grpc-js';
-import {
-    CommandErrorCode,
-    LogicalState,
-    RunOutcome,
-    StateSnapshot,
-    SummaryTermination,
-} from '../src/gen/bridge.js';
+import { LogicalState, RunOutcome, StateSnapshot } from '../src/gen/bridge.js';
 import { BridgeTestClient } from '../src/test-client.js';
 
 interface ControlResponse {
@@ -22,14 +16,8 @@ interface ControlResponse {
     code?: number;
     process?: string;
     token?: string;
-    requestId?: string;
-    kind?: string;
-    text?: string;
-    safeMsg?: string;
-    terminate?: number;
     sent?: number;
     active?: number;
-    summaries?: number;
     leases?: number;
     hasPeer?: boolean;
     hasState?: boolean;
@@ -38,8 +26,6 @@ interface ControlResponse {
     journalFirst?: string;
     journalLast?: string;
     journalGap?: boolean;
-    staleDrops?: number;
-    pending?: number;
 }
 
 let server: ReturnType<typeof spawn>;
@@ -258,292 +244,11 @@ describe('lifecycle isolation', () => {
             });
             expect(view.ok).toBe(true);
             expect(view.journalLast).toBe(String(PER));
-            expect(view.staleDrops).toBe(0);
         }
         const stats = await control({ op: 'stats' });
         expect(stats.active).toBeGreaterThanOrEqual(N);
         await Promise.all(clients.map((c) => c.close()));
     }, 120_000);
-});
-
-describe('summary correlation', () => {
-    it('round-trips unicode and large revisions', async () => {
-        const { client, process } = await makeClient('pane-sum-ok');
-        client.onSummary = async () => ({
-            text: 'Synthetic summary ↔ünicode—done ✓',
-        });
-        await client.connect();
-        const sum = await control({
-            op: 'summarize',
-            process,
-            session: 'sess-pane-sum-ok',
-            leaf: 'leaf-pane-sum-ok',
-            provider: 'p',
-            model: 'm',
-            revision: '0',
-            deadlineMs: 10_000,
-        });
-        expect(sum.ok, sum.error).toBe(true);
-        const out = await control({
-            op: 'await',
-            process,
-            requestId: sum.requestId,
-            timeoutMs: 10_000,
-        });
-        expect(out.ok).toBe(true);
-        expect(out.kind).toBe('summary');
-        expect(out.text).toBe('Synthetic summary ↔ünicode—done ✓');
-        await client.close();
-    }, 30_000);
-    it('delivers command errors without closing the stream', async () => {
-        const { client, process } = await makeClient('pane-sum-err');
-        client.onSummary = async () => ({
-            error: {
-                code: CommandErrorCode.COMMAND_ERROR_BUSY,
-                safeMessage: 'busy',
-            },
-        });
-        await client.connect();
-        const sum = await control({
-            op: 'summarize',
-            process,
-            session: 'sess-pane-sum-err',
-            leaf: 'leaf-pane-sum-err',
-            provider: 'p',
-            model: 'm',
-            revision: '0',
-            deadlineMs: 10_000,
-        });
-        expect(sum.ok).toBe(true);
-        const out = await control({
-            op: 'await',
-            process,
-            requestId: sum.requestId,
-            timeoutMs: 10_000,
-        });
-        expect(out.kind).toBe('error');
-        expect(out.code).toBe(CommandErrorCode.COMMAND_ERROR_BUSY);
-        // Stream stays healthy for a second command.
-        client.onSummary = async () => ({ text: 'second' });
-        const sum2 = await control({
-            op: 'summarize',
-            process,
-            session: 'sess-pane-sum-err',
-            leaf: 'leaf-pane-sum-err',
-            provider: 'p',
-            model: 'm',
-            revision: '0',
-            deadlineMs: 10_000,
-        });
-        expect(sum2.ok).toBe(true);
-        const out2 = await control({
-            op: 'await',
-            process,
-            requestId: sum2.requestId,
-            timeoutMs: 10_000,
-        });
-        expect(out2.kind).toBe('summary');
-        await client.close();
-    }, 30_000);
-    it('rejects stale duplicates without provider work', async () => {
-        const { client } = await makeClient('pane-sum-dup');
-        let calls = 0;
-        client.onSummary = async () => {
-            calls += 1;
-            return { text: 'once' };
-        };
-        await client.connect();
-        expect(client.tracker.noteSummarize(41n)).toBe('accept');
-        expect(client.tracker.noteSummarize(41n)).toBe('duplicate');
-        client.tracker.complete(41n);
-        expect(client.tracker.noteSummarize(41n)).toBe('duplicate');
-        expect(calls).toBe(0);
-        await client.close();
-    }, 20_000);
-});
-
-describe('concurrency', () => {
-    it('enforces one per pane and two server-wide', async () => {
-        const a = await makeClient('pane-conc-a');
-        const b = await makeClient('pane-conc-b');
-        const c = await makeClient('pane-conc-c');
-        // Never-resolving handlers hold the admission slots.
-        const hold = () => new Promise<{ text?: string }>(() => {});
-        a.client.onSummary = hold;
-        b.client.onSummary = hold;
-        c.client.onSummary = hold;
-        await Promise.all([
-            a.client.connect(),
-            b.client.connect(),
-            c.client.connect(),
-        ]);
-        const first = await control({
-            op: 'summarize',
-            process: a.process,
-            session: 'sess-pane-conc-a',
-            leaf: 'leaf-pane-conc-a',
-            provider: 'p',
-            model: 'm',
-            revision: '0',
-            deadlineMs: 10_000,
-        });
-        expect(first.ok).toBe(true);
-        const secondSamePane = await control({
-            op: 'summarize',
-            process: a.process,
-            session: 'sess-pane-conc-a',
-            leaf: 'leaf-pane-conc-a',
-            provider: 'p',
-            model: 'm',
-            revision: '0',
-            deadlineMs: 2000,
-        });
-        expect(secondSamePane.ok).toBe(false);
-        expect(secondSamePane.code).toBe(GrpcStatus.RESOURCE_EXHAUSTED);
-        const secondPane = await control({
-            op: 'summarize',
-            process: b.process,
-            session: 'sess-pane-conc-b',
-            leaf: 'leaf-pane-conc-b',
-            provider: 'p',
-            model: 'm',
-            revision: '0',
-            deadlineMs: 10_000,
-        });
-        expect(secondPane.ok).toBe(true);
-        const thirdServer = await control({
-            op: 'summarize',
-            process: c.process,
-            session: 'sess-pane-conc-c',
-            leaf: 'leaf-pane-conc-c',
-            provider: 'p',
-            model: 'm',
-            revision: '0',
-            deadlineMs: 2000,
-        });
-        expect(thirdServer.ok).toBe(false);
-        expect(thirdServer.code).toBe(GrpcStatus.RESOURCE_EXHAUSTED);
-        await control({ op: 'revoke', process: a.process });
-        await control({ op: 'revoke', process: b.process });
-        await control({ op: 'revoke', process: c.process });
-        await Promise.all([
-            a.client.close(),
-            b.client.close(),
-            c.client.close(),
-        ]);
-    }, 30_000);
-});
-
-describe('cancellation', () => {
-    it('is idempotent and frees only on terminal evidence', async () => {
-        const { client, process } = await makeClient('pane-cancel');
-        let cancels = 0;
-        client.onCancel = () => {
-            cancels += 1;
-        };
-        // Hold the slot until the test acks.
-        client.onSummary = () => new Promise(() => {});
-        await client.connect();
-        const unknown = await control({
-            op: 'cancel',
-            process,
-            requestId: '999',
-            reason: 1,
-        });
-        expect(unknown.ok).toBe(true);
-        const sum = await control({
-            op: 'summarize',
-            process,
-            session: 'sess-pane-cancel',
-            leaf: 'leaf-pane-cancel',
-            provider: 'p',
-            model: 'm',
-            revision: '0',
-            deadlineMs: 10_000,
-        });
-        expect(sum.ok).toBe(true);
-        const id = BigInt(sum.requestId!);
-        await control({
-            op: 'cancel',
-            process,
-            requestId: sum.requestId,
-            reason: 1,
-        });
-        await control({
-            op: 'cancel',
-            process,
-            requestId: sum.requestId,
-            reason: 1,
-        });
-        await new Promise((r) => setTimeout(r, 300));
-        expect(cancels).toBeGreaterThanOrEqual(1);
-        const before = await control({ op: 'inspect', process });
-        expect(before.pending).toBe(1);
-        client.sendCancelAck(id, SummaryTermination.SUMMARY_TERMINATION_ENDED);
-        const out = await control({
-            op: 'await',
-            process,
-            requestId: sum.requestId,
-            timeoutMs: 10_000,
-        });
-        expect(out.kind).toBe('cancelAck');
-        const after = await control({ op: 'inspect', process });
-        expect(after.pending).toBe(0);
-        await client.close();
-    }, 30_000);
-});
-
-describe('message bounds', () => {
-    it('rejects overlong summary text with InvalidArgument', async () => {
-        const { client, process } = await makeClient('pane-big-text');
-        client.onSummary = () => new Promise(() => {});
-        await client.connect();
-        const sum = await control({
-            op: 'summarize',
-            process,
-            session: 'sess-pane-big-text',
-            leaf: 'leaf-pane-big-text',
-            provider: 'p',
-            model: 'm',
-            revision: '0',
-            deadlineMs: 10_000,
-        });
-        expect(sum.ok).toBe(true);
-        client.sendSummaryResult(
-            BigInt(sum.requestId!),
-            'sess-pane-big-text',
-            'leaf-pane-big-text',
-            'x'.repeat(129 * 1024),
-            0n,
-        );
-        const status = await client.awaitStatus();
-        expect(status?.code).toBe(GrpcStatus.INVALID_ARGUMENT);
-        await client.close();
-    }, 30_000);
-    it('rejects overlong safe messages with InvalidArgument', async () => {
-        const { client, process } = await makeClient('pane-big-safe');
-        client.onSummary = () => new Promise(() => {});
-        await client.connect();
-        const sum = await control({
-            op: 'summarize',
-            process,
-            session: 'sess-pane-big-safe',
-            leaf: 'leaf-pane-big-safe',
-            provider: 'p',
-            model: 'm',
-            revision: '0',
-            deadlineMs: 10_000,
-        });
-        expect(sum.ok).toBe(true);
-        client.sendCommandError(
-            BigInt(sum.requestId!),
-            CommandErrorCode.COMMAND_ERROR_INTERNAL,
-            'e'.repeat(3 * 1024),
-        );
-        const status = await client.awaitStatus();
-        expect(status?.code).toBe(GrpcStatus.INVALID_ARGUMENT);
-        await client.close();
-    }, 30_000);
 });
 
 describe('slow peer', () => {

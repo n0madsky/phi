@@ -58,43 +58,6 @@ export enum LogicalState {
   UNRECOGNIZED = -1,
 }
 
-/** Terminal disposition of an outstanding summary request. */
-export enum SummaryTermination {
-  SUMMARY_TERMINATION_UNSPECIFIED = 0,
-  SUMMARY_TERMINATION_RUNNING = 1,
-  SUMMARY_TERMINATION_ENDED = 2,
-  SUMMARY_TERMINATION_UNKNOWN = 3,
-  UNRECOGNIZED = -1,
-}
-
-/**
- * Terminal failure of a Phi-issued command. safe_message is bounded and
- * contains no credentials, transcripts, or raw provider errors.
- */
-export enum CommandErrorCode {
-  COMMAND_ERROR_UNSPECIFIED = 0,
-  COMMAND_ERROR_BUSY = 1,
-  COMMAND_ERROR_STALE_SNAPSHOT = 2,
-  COMMAND_ERROR_UNSUPPORTED_CAPABILITY = 3,
-  COMMAND_ERROR_MODEL_FAILURE = 4,
-  COMMAND_ERROR_CANCELED = 5,
-  COMMAND_ERROR_DEADLINE_EXPIRED = 6,
-  COMMAND_ERROR_LIMIT = 7,
-  COMMAND_ERROR_INTERNAL = 8,
-  COMMAND_ERROR_DUPLICATE_REQUEST = 9,
-  UNRECOGNIZED = -1,
-}
-
-export enum CancelReason {
-  CANCEL_REASON_UNSPECIFIED = 0,
-  CANCEL_REASON_USER = 1,
-  CANCEL_REASON_DISCONNECT = 2,
-  CANCEL_REASON_REPLACEMENT = 3,
-  CANCEL_REASON_NEW_RUN = 4,
-  CANCEL_REASON_DEADLINE = 5,
-  UNRECOGNIZED = -1,
-}
-
 export enum ProtocolErrorCode {
   PROTOCOL_ERROR_UNSPECIFIED = 0,
   PROTOCOL_ERROR_UNSUPPORTED_VERSION = 1,
@@ -118,9 +81,6 @@ export interface PiToPhi {
     | { $case: "agentStarted"; value: AgentStarted }
     | { $case: "agentSettled"; value: AgentSettled }
     | { $case: "stateSnapshot"; value: StateSnapshot }
-    | { $case: "summaryResult"; value: SummaryResult }
-    | { $case: "commandError"; value: CommandError }
-    | { $case: "cancelAcknowledged"; value: CancelAcknowledged }
     | undefined;
 }
 
@@ -129,12 +89,7 @@ export interface PhiToPi {
   paneId: string;
   processId: string;
   runtimeGeneration: bigint;
-  payload:
-    | { $case: "accepted"; value: Accepted }
-    | { $case: "summarize"; value: Summarize }
-    | { $case: "cancel"; value: Cancel }
-    | { $case: "protocolError"; value: ProtocolError }
-    | undefined;
+  payload: { $case: "accepted"; value: Accepted } | { $case: "protocolError"; value: ProtocolError } | undefined;
 }
 
 /**
@@ -143,8 +98,6 @@ export interface PhiToPi {
  */
 export interface Hello {
   protocolVersion: number;
-  packageVersion: string;
-  hostVersion: string;
   sessionId: string;
   runtimeId: string;
   capabilities: string[];
@@ -194,19 +147,10 @@ export interface LifecycleRecord {
   outcome: RunOutcome;
 }
 
-/** Selected or reported model identity for a summary snapshot. */
+/** Active model identity for lifecycle snapshots. */
 export interface ModelSnapshot {
   provider: string;
   model: string;
-}
-
-/**
- * Termination state of one outstanding summary request, for admission
- * accounting across reconnects and runtime replacement.
- */
-export interface OutstandingSummary {
-  requestId: bigint;
-  termination: SummaryTermination;
 }
 
 /** Authoritative current state, sent on attach, reconnect, and transitions. */
@@ -218,66 +162,6 @@ export interface StateSnapshot {
   journal: LifecycleRecord[];
   journalGap: boolean;
   stateRevision: bigint;
-  outstandingSummaries: OutstandingSummary[];
-}
-
-/**
- * Token usage for one summary. proto3 optionals distinguish missing usage
- * and missing cost from zero.
- */
-export interface Usage {
-  inputTokens?: bigint | undefined;
-  outputTokens?:
-    | bigint
-    | undefined;
-  /** Cost derived from configured price tables, not a provider bill. */
-  costUsd?: number | undefined;
-  costFromPriceTables: boolean;
-}
-
-/**
- * Result of one explicit summary request. Carries snapshot identities so Phi
- * can reject stale results.
- */
-export interface SummaryResult {
-  requestId: bigint;
-  sessionId: string;
-  leafId: string;
-  text: string;
-  selectedModel: ModelSnapshot | undefined;
-  reportedModel: ModelSnapshot | undefined;
-  usage: Usage | undefined;
-  stateRevision: bigint;
-}
-
-export interface CommandError {
-  requestId: bigint;
-  code: CommandErrorCode;
-  safeMessage: string;
-}
-
-/** Sent only after the local invocation for the request has actually ended. */
-export interface CancelAcknowledged {
-  requestId: bigint;
-  disposition: SummaryTermination;
-}
-
-/**
- * Phi-initiated summary command. Expected snapshot identities are checked by
- * the extension before any provider work.
- */
-export interface Summarize {
-  requestId: bigint;
-  sessionId: string;
-  leafId: string;
-  model: ModelSnapshot | undefined;
-  deadlineMs: bigint;
-  stateRevision: bigint;
-}
-
-export interface Cancel {
-  requestId: bigint;
-  reason: CancelReason;
 }
 
 /** Terminal protocol-level rejection. Ends the stream attempt. */
@@ -316,15 +200,6 @@ export const PiToPhi: MessageFns<PiToPhi> = {
         break;
       case "stateSnapshot":
         StateSnapshot.encode(message.payload.value, writer.uint32(106).fork()).join();
-        break;
-      case "summaryResult":
-        SummaryResult.encode(message.payload.value, writer.uint32(114).fork()).join();
-        break;
-      case "commandError":
-        CommandError.encode(message.payload.value, writer.uint32(122).fork()).join();
-        break;
-      case "cancelAcknowledged":
-        CancelAcknowledged.encode(message.payload.value, writer.uint32(130).fork()).join();
         break;
     }
     return writer;
@@ -399,33 +274,6 @@ export const PiToPhi: MessageFns<PiToPhi> = {
             message.payload = { $case: "stateSnapshot", value: StateSnapshot.decode(reader, reader.uint32()) };
             continue;
           }
-          case 14: {
-            if (tag !== 114) {
-              break;
-            }
-
-            message.payload = { $case: "summaryResult", value: SummaryResult.decode(reader, reader.uint32()) };
-            continue;
-          }
-          case 15: {
-            if (tag !== 122) {
-              break;
-            }
-
-            message.payload = { $case: "commandError", value: CommandError.decode(reader, reader.uint32()) };
-            continue;
-          }
-          case 16: {
-            if (tag !== 130) {
-              break;
-            }
-
-            message.payload = {
-              $case: "cancelAcknowledged",
-              value: CancelAcknowledged.decode(reader, reader.uint32()),
-            };
-            continue;
-          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -473,27 +321,6 @@ export const PiToPhi: MessageFns<PiToPhi> = {
         }
         break;
       }
-      case "summaryResult": {
-        if (object.payload?.value !== undefined && object.payload?.value !== null) {
-          message.payload = { $case: "summaryResult", value: SummaryResult.fromPartial(object.payload.value) };
-        }
-        break;
-      }
-      case "commandError": {
-        if (object.payload?.value !== undefined && object.payload?.value !== null) {
-          message.payload = { $case: "commandError", value: CommandError.fromPartial(object.payload.value) };
-        }
-        break;
-      }
-      case "cancelAcknowledged": {
-        if (object.payload?.value !== undefined && object.payload?.value !== null) {
-          message.payload = {
-            $case: "cancelAcknowledged",
-            value: CancelAcknowledged.fromPartial(object.payload.value),
-          };
-        }
-        break;
-      }
     }
     return message;
   },
@@ -520,12 +347,6 @@ export const PhiToPi: MessageFns<PhiToPi> = {
     switch (message.payload?.$case) {
       case "accepted":
         Accepted.encode(message.payload.value, writer.uint32(82).fork()).join();
-        break;
-      case "summarize":
-        Summarize.encode(message.payload.value, writer.uint32(90).fork()).join();
-        break;
-      case "cancel":
-        Cancel.encode(message.payload.value, writer.uint32(98).fork()).join();
         break;
       case "protocolError":
         ProtocolError.encode(message.payload.value, writer.uint32(106).fork()).join();
@@ -579,22 +400,6 @@ export const PhiToPi: MessageFns<PhiToPi> = {
             message.payload = { $case: "accepted", value: Accepted.decode(reader, reader.uint32()) };
             continue;
           }
-          case 11: {
-            if (tag !== 90) {
-              break;
-            }
-
-            message.payload = { $case: "summarize", value: Summarize.decode(reader, reader.uint32()) };
-            continue;
-          }
-          case 12: {
-            if (tag !== 98) {
-              break;
-            }
-
-            message.payload = { $case: "cancel", value: Cancel.decode(reader, reader.uint32()) };
-            continue;
-          }
           case 13: {
             if (tag !== 106) {
               break;
@@ -632,18 +437,6 @@ export const PhiToPi: MessageFns<PhiToPi> = {
         }
         break;
       }
-      case "summarize": {
-        if (object.payload?.value !== undefined && object.payload?.value !== null) {
-          message.payload = { $case: "summarize", value: Summarize.fromPartial(object.payload.value) };
-        }
-        break;
-      }
-      case "cancel": {
-        if (object.payload?.value !== undefined && object.payload?.value !== null) {
-          message.payload = { $case: "cancel", value: Cancel.fromPartial(object.payload.value) };
-        }
-        break;
-      }
       case "protocolError": {
         if (object.payload?.value !== undefined && object.payload?.value !== null) {
           message.payload = { $case: "protocolError", value: ProtocolError.fromPartial(object.payload.value) };
@@ -658,8 +451,6 @@ export const PhiToPi: MessageFns<PhiToPi> = {
 function createBaseHello(): Hello {
   return {
     protocolVersion: 0,
-    packageVersion: "",
-    hostVersion: "",
     sessionId: "",
     runtimeId: "",
     capabilities: [],
@@ -673,12 +464,6 @@ export const Hello: MessageFns<Hello> = {
   encode(message: Hello, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.protocolVersion !== 0) {
       writer.uint32(8).uint32(message.protocolVersion);
-    }
-    if (message.packageVersion !== "") {
-      writer.uint32(18).string(message.packageVersion);
-    }
-    if (message.hostVersion !== "") {
-      writer.uint32(26).string(message.hostVersion);
     }
     if (message.sessionId !== "") {
       writer.uint32(34).string(message.sessionId);
@@ -726,22 +511,6 @@ export const Hello: MessageFns<Hello> = {
             }
 
             message.protocolVersion = reader.uint32();
-            continue;
-          }
-          case 2: {
-            if (tag !== 18) {
-              break;
-            }
-
-            message.packageVersion = reader.string();
-            continue;
-          }
-          case 3: {
-            if (tag !== 26) {
-              break;
-            }
-
-            message.hostVersion = reader.string();
             continue;
           }
           case 4: {
@@ -810,8 +579,6 @@ export const Hello: MessageFns<Hello> = {
   fromPartial<I extends Exact<DeepPartial<Hello>, I>>(object: I): Hello {
     const message = createBaseHello();
     message.protocolVersion = object.protocolVersion ?? 0;
-    message.packageVersion = object.packageVersion ?? "";
-    message.hostVersion = object.hostVersion ?? "";
     message.sessionId = object.sessionId ?? "";
     message.runtimeId = object.runtimeId ?? "";
     message.capabilities = object.capabilities?.map((e) => e) || [];
@@ -1252,87 +1019,8 @@ export const ModelSnapshot: MessageFns<ModelSnapshot> = {
   },
 };
 
-function createBaseOutstandingSummary(): OutstandingSummary {
-  return { requestId: 0n, termination: 0 };
-}
-
-export const OutstandingSummary: MessageFns<OutstandingSummary> = {
-  encode(message: OutstandingSummary, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.requestId !== 0n) {
-      if (BigInt.asUintN(64, message.requestId) !== message.requestId) {
-        throw new globalThis.Error("value provided for field message.requestId of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.requestId);
-    }
-    if (message.termination !== 0) {
-      writer.uint32(16).int32(message.termination);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): OutstandingSummary {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === undefined ? reader.len : reader.pos + length;
-      const message = createBaseOutstandingSummary();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-
-            message.requestId = reader.uint64() as bigint;
-            continue;
-          }
-          case 2: {
-            if (tag !== 16) {
-              break;
-            }
-
-            message.termination = reader.int32() as any;
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-
-  create<I extends Exact<DeepPartial<OutstandingSummary>, I>>(base?: I): OutstandingSummary {
-    return OutstandingSummary.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<OutstandingSummary>, I>>(object: I): OutstandingSummary {
-    const message = createBaseOutstandingSummary();
-    message.requestId = (object.requestId !== undefined && object.requestId !== null) ? BigInt(object.requestId) : 0n;
-    message.termination = object.termination ?? 0;
-    return message;
-  },
-};
-
 function createBaseStateSnapshot(): StateSnapshot {
-  return {
-    state: 0,
-    sessionId: "",
-    leafId: "",
-    model: undefined,
-    journal: [],
-    journalGap: false,
-    stateRevision: 0n,
-    outstandingSummaries: [],
-  };
+  return { state: 0, sessionId: "", leafId: "", model: undefined, journal: [], journalGap: false, stateRevision: 0n };
 }
 
 export const StateSnapshot: MessageFns<StateSnapshot> = {
@@ -1360,9 +1048,6 @@ export const StateSnapshot: MessageFns<StateSnapshot> = {
         throw new globalThis.Error("value provided for field message.stateRevision of type uint64 too large");
       }
       writer.uint32(56).uint64(message.stateRevision);
-    }
-    for (const v of message.outstandingSummaries) {
-      OutstandingSummary.encode(v!, writer.uint32(66).fork()).join();
     }
     return writer;
   },
@@ -1436,14 +1121,6 @@ export const StateSnapshot: MessageFns<StateSnapshot> = {
             message.stateRevision = reader.uint64() as bigint;
             continue;
           }
-          case 8: {
-            if (tag !== 66) {
-              break;
-            }
-
-            message.outstandingSummaries.push(OutstandingSummary.decode(reader, reader.uint32()));
-            continue;
-          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -1472,620 +1149,6 @@ export const StateSnapshot: MessageFns<StateSnapshot> = {
     message.stateRevision = (object.stateRevision !== undefined && object.stateRevision !== null)
       ? BigInt(object.stateRevision)
       : 0n;
-    message.outstandingSummaries = object.outstandingSummaries?.map((e) => OutstandingSummary.fromPartial(e)) || [];
-    return message;
-  },
-};
-
-function createBaseUsage(): Usage {
-  return { inputTokens: undefined, outputTokens: undefined, costUsd: undefined, costFromPriceTables: false };
-}
-
-export const Usage: MessageFns<Usage> = {
-  encode(message: Usage, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.inputTokens !== undefined) {
-      if (BigInt.asUintN(64, message.inputTokens) !== message.inputTokens) {
-        throw new globalThis.Error("value provided for field message.inputTokens of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.inputTokens);
-    }
-    if (message.outputTokens !== undefined) {
-      if (BigInt.asUintN(64, message.outputTokens) !== message.outputTokens) {
-        throw new globalThis.Error("value provided for field message.outputTokens of type uint64 too large");
-      }
-      writer.uint32(16).uint64(message.outputTokens);
-    }
-    if (message.costUsd !== undefined) {
-      writer.uint32(25).double(message.costUsd);
-    }
-    if (message.costFromPriceTables !== false) {
-      writer.uint32(32).bool(message.costFromPriceTables);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): Usage {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === undefined ? reader.len : reader.pos + length;
-      const message = createBaseUsage();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-
-            message.inputTokens = reader.uint64() as bigint;
-            continue;
-          }
-          case 2: {
-            if (tag !== 16) {
-              break;
-            }
-
-            message.outputTokens = reader.uint64() as bigint;
-            continue;
-          }
-          case 3: {
-            if (tag !== 25) {
-              break;
-            }
-
-            message.costUsd = reader.double();
-            continue;
-          }
-          case 4: {
-            if (tag !== 32) {
-              break;
-            }
-
-            message.costFromPriceTables = reader.bool();
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-
-  create<I extends Exact<DeepPartial<Usage>, I>>(base?: I): Usage {
-    return Usage.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<Usage>, I>>(object: I): Usage {
-    const message = createBaseUsage();
-    message.inputTokens = (object.inputTokens !== undefined && object.inputTokens !== null)
-      ? BigInt(object.inputTokens)
-      : undefined;
-    message.outputTokens = (object.outputTokens !== undefined && object.outputTokens !== null)
-      ? BigInt(object.outputTokens)
-      : undefined;
-    message.costUsd = object.costUsd ?? undefined;
-    message.costFromPriceTables = object.costFromPriceTables ?? false;
-    return message;
-  },
-};
-
-function createBaseSummaryResult(): SummaryResult {
-  return {
-    requestId: 0n,
-    sessionId: "",
-    leafId: "",
-    text: "",
-    selectedModel: undefined,
-    reportedModel: undefined,
-    usage: undefined,
-    stateRevision: 0n,
-  };
-}
-
-export const SummaryResult: MessageFns<SummaryResult> = {
-  encode(message: SummaryResult, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.requestId !== 0n) {
-      if (BigInt.asUintN(64, message.requestId) !== message.requestId) {
-        throw new globalThis.Error("value provided for field message.requestId of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.requestId);
-    }
-    if (message.sessionId !== "") {
-      writer.uint32(18).string(message.sessionId);
-    }
-    if (message.leafId !== "") {
-      writer.uint32(26).string(message.leafId);
-    }
-    if (message.text !== "") {
-      writer.uint32(34).string(message.text);
-    }
-    if (message.selectedModel !== undefined) {
-      ModelSnapshot.encode(message.selectedModel, writer.uint32(42).fork()).join();
-    }
-    if (message.reportedModel !== undefined) {
-      ModelSnapshot.encode(message.reportedModel, writer.uint32(50).fork()).join();
-    }
-    if (message.usage !== undefined) {
-      Usage.encode(message.usage, writer.uint32(58).fork()).join();
-    }
-    if (message.stateRevision !== 0n) {
-      if (BigInt.asUintN(64, message.stateRevision) !== message.stateRevision) {
-        throw new globalThis.Error("value provided for field message.stateRevision of type uint64 too large");
-      }
-      writer.uint32(64).uint64(message.stateRevision);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): SummaryResult {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === undefined ? reader.len : reader.pos + length;
-      const message = createBaseSummaryResult();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-
-            message.requestId = reader.uint64() as bigint;
-            continue;
-          }
-          case 2: {
-            if (tag !== 18) {
-              break;
-            }
-
-            message.sessionId = reader.string();
-            continue;
-          }
-          case 3: {
-            if (tag !== 26) {
-              break;
-            }
-
-            message.leafId = reader.string();
-            continue;
-          }
-          case 4: {
-            if (tag !== 34) {
-              break;
-            }
-
-            message.text = reader.string();
-            continue;
-          }
-          case 5: {
-            if (tag !== 42) {
-              break;
-            }
-
-            message.selectedModel = ModelSnapshot.decode(reader, reader.uint32());
-            continue;
-          }
-          case 6: {
-            if (tag !== 50) {
-              break;
-            }
-
-            message.reportedModel = ModelSnapshot.decode(reader, reader.uint32());
-            continue;
-          }
-          case 7: {
-            if (tag !== 58) {
-              break;
-            }
-
-            message.usage = Usage.decode(reader, reader.uint32());
-            continue;
-          }
-          case 8: {
-            if (tag !== 64) {
-              break;
-            }
-
-            message.stateRevision = reader.uint64() as bigint;
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-
-  create<I extends Exact<DeepPartial<SummaryResult>, I>>(base?: I): SummaryResult {
-    return SummaryResult.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<SummaryResult>, I>>(object: I): SummaryResult {
-    const message = createBaseSummaryResult();
-    message.requestId = (object.requestId !== undefined && object.requestId !== null) ? BigInt(object.requestId) : 0n;
-    message.sessionId = object.sessionId ?? "";
-    message.leafId = object.leafId ?? "";
-    message.text = object.text ?? "";
-    message.selectedModel = (object.selectedModel !== undefined && object.selectedModel !== null)
-      ? ModelSnapshot.fromPartial(object.selectedModel)
-      : undefined;
-    message.reportedModel = (object.reportedModel !== undefined && object.reportedModel !== null)
-      ? ModelSnapshot.fromPartial(object.reportedModel)
-      : undefined;
-    message.usage = (object.usage !== undefined && object.usage !== null) ? Usage.fromPartial(object.usage) : undefined;
-    message.stateRevision = (object.stateRevision !== undefined && object.stateRevision !== null)
-      ? BigInt(object.stateRevision)
-      : 0n;
-    return message;
-  },
-};
-
-function createBaseCommandError(): CommandError {
-  return { requestId: 0n, code: 0, safeMessage: "" };
-}
-
-export const CommandError: MessageFns<CommandError> = {
-  encode(message: CommandError, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.requestId !== 0n) {
-      if (BigInt.asUintN(64, message.requestId) !== message.requestId) {
-        throw new globalThis.Error("value provided for field message.requestId of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.requestId);
-    }
-    if (message.code !== 0) {
-      writer.uint32(16).int32(message.code);
-    }
-    if (message.safeMessage !== "") {
-      writer.uint32(26).string(message.safeMessage);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): CommandError {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === undefined ? reader.len : reader.pos + length;
-      const message = createBaseCommandError();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-
-            message.requestId = reader.uint64() as bigint;
-            continue;
-          }
-          case 2: {
-            if (tag !== 16) {
-              break;
-            }
-
-            message.code = reader.int32() as any;
-            continue;
-          }
-          case 3: {
-            if (tag !== 26) {
-              break;
-            }
-
-            message.safeMessage = reader.string();
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-
-  create<I extends Exact<DeepPartial<CommandError>, I>>(base?: I): CommandError {
-    return CommandError.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<CommandError>, I>>(object: I): CommandError {
-    const message = createBaseCommandError();
-    message.requestId = (object.requestId !== undefined && object.requestId !== null) ? BigInt(object.requestId) : 0n;
-    message.code = object.code ?? 0;
-    message.safeMessage = object.safeMessage ?? "";
-    return message;
-  },
-};
-
-function createBaseCancelAcknowledged(): CancelAcknowledged {
-  return { requestId: 0n, disposition: 0 };
-}
-
-export const CancelAcknowledged: MessageFns<CancelAcknowledged> = {
-  encode(message: CancelAcknowledged, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.requestId !== 0n) {
-      if (BigInt.asUintN(64, message.requestId) !== message.requestId) {
-        throw new globalThis.Error("value provided for field message.requestId of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.requestId);
-    }
-    if (message.disposition !== 0) {
-      writer.uint32(16).int32(message.disposition);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): CancelAcknowledged {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === undefined ? reader.len : reader.pos + length;
-      const message = createBaseCancelAcknowledged();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-
-            message.requestId = reader.uint64() as bigint;
-            continue;
-          }
-          case 2: {
-            if (tag !== 16) {
-              break;
-            }
-
-            message.disposition = reader.int32() as any;
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-
-  create<I extends Exact<DeepPartial<CancelAcknowledged>, I>>(base?: I): CancelAcknowledged {
-    return CancelAcknowledged.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<CancelAcknowledged>, I>>(object: I): CancelAcknowledged {
-    const message = createBaseCancelAcknowledged();
-    message.requestId = (object.requestId !== undefined && object.requestId !== null) ? BigInt(object.requestId) : 0n;
-    message.disposition = object.disposition ?? 0;
-    return message;
-  },
-};
-
-function createBaseSummarize(): Summarize {
-  return { requestId: 0n, sessionId: "", leafId: "", model: undefined, deadlineMs: 0n, stateRevision: 0n };
-}
-
-export const Summarize: MessageFns<Summarize> = {
-  encode(message: Summarize, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.requestId !== 0n) {
-      if (BigInt.asUintN(64, message.requestId) !== message.requestId) {
-        throw new globalThis.Error("value provided for field message.requestId of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.requestId);
-    }
-    if (message.sessionId !== "") {
-      writer.uint32(18).string(message.sessionId);
-    }
-    if (message.leafId !== "") {
-      writer.uint32(26).string(message.leafId);
-    }
-    if (message.model !== undefined) {
-      ModelSnapshot.encode(message.model, writer.uint32(34).fork()).join();
-    }
-    if (message.deadlineMs !== 0n) {
-      if (BigInt.asUintN(64, message.deadlineMs) !== message.deadlineMs) {
-        throw new globalThis.Error("value provided for field message.deadlineMs of type uint64 too large");
-      }
-      writer.uint32(40).uint64(message.deadlineMs);
-    }
-    if (message.stateRevision !== 0n) {
-      if (BigInt.asUintN(64, message.stateRevision) !== message.stateRevision) {
-        throw new globalThis.Error("value provided for field message.stateRevision of type uint64 too large");
-      }
-      writer.uint32(48).uint64(message.stateRevision);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): Summarize {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === undefined ? reader.len : reader.pos + length;
-      const message = createBaseSummarize();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-
-            message.requestId = reader.uint64() as bigint;
-            continue;
-          }
-          case 2: {
-            if (tag !== 18) {
-              break;
-            }
-
-            message.sessionId = reader.string();
-            continue;
-          }
-          case 3: {
-            if (tag !== 26) {
-              break;
-            }
-
-            message.leafId = reader.string();
-            continue;
-          }
-          case 4: {
-            if (tag !== 34) {
-              break;
-            }
-
-            message.model = ModelSnapshot.decode(reader, reader.uint32());
-            continue;
-          }
-          case 5: {
-            if (tag !== 40) {
-              break;
-            }
-
-            message.deadlineMs = reader.uint64() as bigint;
-            continue;
-          }
-          case 6: {
-            if (tag !== 48) {
-              break;
-            }
-
-            message.stateRevision = reader.uint64() as bigint;
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-
-  create<I extends Exact<DeepPartial<Summarize>, I>>(base?: I): Summarize {
-    return Summarize.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<Summarize>, I>>(object: I): Summarize {
-    const message = createBaseSummarize();
-    message.requestId = (object.requestId !== undefined && object.requestId !== null) ? BigInt(object.requestId) : 0n;
-    message.sessionId = object.sessionId ?? "";
-    message.leafId = object.leafId ?? "";
-    message.model = (object.model !== undefined && object.model !== null)
-      ? ModelSnapshot.fromPartial(object.model)
-      : undefined;
-    message.deadlineMs = (object.deadlineMs !== undefined && object.deadlineMs !== null)
-      ? BigInt(object.deadlineMs)
-      : 0n;
-    message.stateRevision = (object.stateRevision !== undefined && object.stateRevision !== null)
-      ? BigInt(object.stateRevision)
-      : 0n;
-    return message;
-  },
-};
-
-function createBaseCancel(): Cancel {
-  return { requestId: 0n, reason: 0 };
-}
-
-export const Cancel: MessageFns<Cancel> = {
-  encode(message: Cancel, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.requestId !== 0n) {
-      if (BigInt.asUintN(64, message.requestId) !== message.requestId) {
-        throw new globalThis.Error("value provided for field message.requestId of type uint64 too large");
-      }
-      writer.uint32(8).uint64(message.requestId);
-    }
-    if (message.reason !== 0) {
-      writer.uint32(16).int32(message.reason);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): Cancel {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
-    if (previousRecursionDepth >= 100) {
-      throw new globalThis.Error("protobuf decode recursion limit exceeded");
-    }
-    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
-    try {
-      const end = length === undefined ? reader.len : reader.pos + length;
-      const message = createBaseCancel();
-      while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-          case 1: {
-            if (tag !== 8) {
-              break;
-            }
-
-            message.requestId = reader.uint64() as bigint;
-            continue;
-          }
-          case 2: {
-            if (tag !== 16) {
-              break;
-            }
-
-            message.reason = reader.int32() as any;
-            continue;
-          }
-        }
-        if ((tag & 7) === 4 || tag === 0) {
-          break;
-        }
-        reader.skip(tag & 7);
-      }
-      return message;
-    } finally {
-      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
-    }
-  },
-
-  create<I extends Exact<DeepPartial<Cancel>, I>>(base?: I): Cancel {
-    return Cancel.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<Cancel>, I>>(object: I): Cancel {
-    const message = createBaseCancel();
-    message.requestId = (object.requestId !== undefined && object.requestId !== null) ? BigInt(object.requestId) : 0n;
-    message.reason = object.reason ?? 0;
     return message;
   },
 };

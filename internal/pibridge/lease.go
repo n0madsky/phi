@@ -42,25 +42,9 @@ type lease struct {
 	sessionID string   // identity bound at maxGen
 	caps      []string // accepted capabilities at maxGen, retained
 
-	nextReqID uint64 // Phi-issued command IDs, monotonic, never reset
 	jrn       journal
 	lastState *pibridgepb.StateSnapshot
 	peer      *peer // current active stream, replaced atomically
-	pending   map[uint64]*pendingReq
-	// recent retains bounded terminal outcomes so an Await that loses
-	// the race with a fast peer still reports the outcome, not a
-	// phantom revocation. recentOrder evicts oldest-first.
-	recent      map[uint64]*commandOutcome
-	recentOrder []uint64
-	staleDrops  int
-}
-
-// pendingReq is one admitted command awaiting terminal evidence.
-// Generation binds the request to the runtime that must execute it;
-// results from another generation are stale and cannot free the slot.
-type pendingReq struct {
-	ch         chan *commandOutcome
-	generation uint64
 }
 
 type leaseState int
@@ -69,32 +53,6 @@ const (
 	leasePending leaseState = iota
 	leaseLive
 	leaseRevoked
-)
-
-// commandOutcome is the terminal result of one Phi-issued command.
-// Exactly one outcome is delivered per admitted request; duplicates and
-// stale results are counted and ignored without closing the stream.
-type commandOutcome struct {
-	kind      outcomeKind
-	request   uint64
-	text      string
-	code      pibridgepb.CommandErrorCode
-	safeMsg   string
-	terminate pibridgepb.SummaryTermination
-	session   string
-	leaf      string
-	selected  *pibridgepb.ModelSnapshot
-	reported  *pibridgepb.ModelSnapshot
-	usage     *pibridgepb.Usage
-}
-
-type outcomeKind int
-
-const (
-	outcomeSummary outcomeKind = iota
-	outcomeError
-	outcomeCancelAck
-	outcomeRevoked
 )
 
 // registry owns all leases, keyed by process identity and pane.
@@ -137,9 +95,6 @@ func (r *registry) registerPending(paneID string) (*lease, error) {
 		processID: process,
 		token:     token,
 		state:     leasePending,
-		nextReqID: 1,
-		pending:   map[uint64]*pendingReq{},
-		recent:    map[uint64]*commandOutcome{},
 	}
 	r.byProcess[process] = l
 	r.byPane[paneID] = l
@@ -162,19 +117,13 @@ func (r *registry) complete(processID string) {
 	l.mu.Unlock()
 }
 
-// revoke removes a lease, fails its pending commands, and closes its
-// active peer. Idempotent.
+// revoke removes a lease and closes its active peer. Idempotent.
 func (r *registry) revoke(processID string) {
-	_ = r.revokeWithCount(processID)
-}
-
-// revokeWithCount is revoke that reports how many admission slots it freed.
-func (r *registry) revokeWithCount(processID string) int {
 	r.mu.Lock()
 	l, ok := r.byProcess[processID]
 	if !ok {
 		r.mu.Unlock()
-		return 0
+		return
 	}
 	delete(r.byProcess, processID)
 	if cur, paneOK := r.byPane[l.paneID]; paneOK && cur == l {
@@ -186,22 +135,11 @@ func (r *registry) revokeWithCount(processID string) int {
 	l.state = leaseRevoked
 	peer := l.peer
 	l.peer = nil
-	pending := l.pending
-	l.pending = map[uint64]*pendingReq{}
-	l.recent = map[uint64]*commandOutcome{}
-	l.recentOrder = nil
 	l.mu.Unlock()
 
-	for id, pend := range pending {
-		select {
-		case pend.ch <- &commandOutcome{kind: outcomeRevoked, request: id}:
-		default:
-		}
-	}
 	if peer != nil {
 		peer.closeWith(codes.Canceled, "lease revoked")
 	}
-	return len(pending)
 }
 
 // lookupByProcess returns the lease for a process identity.

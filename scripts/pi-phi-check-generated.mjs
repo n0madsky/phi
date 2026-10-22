@@ -58,14 +58,6 @@ try {
         );
         process.exit(1);
     }
-    const stagedShim = readFileSync(join(pkgDir, 'dist', 'pi-phi-entry.ts'));
-    const shimSource = readFileSync(join(pkgDir, 'src', 'entry-shim.ts'));
-    if (!stagedShim.equals(shimSource)) {
-        console.error(
-            'shim drift: dist/pi-phi-entry.ts differs from src/entry-shim.ts; run pnpm build:pi-phi',
-        );
-        process.exit(1);
-    }
 } finally {
     rmSync(tmp, { recursive: true, force: true });
 }

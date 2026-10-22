@@ -181,15 +181,6 @@ func handleFallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Explicit Pi session summary (paid model call). Same auth gate;
-	// the handler adds same-origin, strict-body, and no-store guards.
-	if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/terminals/") && strings.HasSuffix(r.URL.Path, "/pi/summary") {
-		id := strings.TrimPrefix(r.URL.Path, "/api/terminals/")
-		id = strings.TrimSuffix(id, "/pi/summary")
-		handlePiSummary(w, r, id)
-		return
-	}
-
 	if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/terminals/") {
 		id := strings.TrimPrefix(r.URL.Path, "/api/terminals/")
 		err := ptyManager.Kill(id)

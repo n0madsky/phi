@@ -137,189 +137,6 @@ func (LogicalState) EnumDescriptor() ([]byte, []int) {
 	return file_bridge_proto_rawDescGZIP(), []int{1}
 }
 
-// Terminal disposition of an outstanding summary request.
-type SummaryTermination int32
-
-const (
-	SummaryTermination_SUMMARY_TERMINATION_UNSPECIFIED SummaryTermination = 0
-	SummaryTermination_SUMMARY_TERMINATION_RUNNING     SummaryTermination = 1
-	SummaryTermination_SUMMARY_TERMINATION_ENDED       SummaryTermination = 2
-	SummaryTermination_SUMMARY_TERMINATION_UNKNOWN     SummaryTermination = 3
-)
-
-// Enum value maps for SummaryTermination.
-var (
-	SummaryTermination_name = map[int32]string{
-		0: "SUMMARY_TERMINATION_UNSPECIFIED",
-		1: "SUMMARY_TERMINATION_RUNNING",
-		2: "SUMMARY_TERMINATION_ENDED",
-		3: "SUMMARY_TERMINATION_UNKNOWN",
-	}
-	SummaryTermination_value = map[string]int32{
-		"SUMMARY_TERMINATION_UNSPECIFIED": 0,
-		"SUMMARY_TERMINATION_RUNNING":     1,
-		"SUMMARY_TERMINATION_ENDED":       2,
-		"SUMMARY_TERMINATION_UNKNOWN":     3,
-	}
-)
-
-func (x SummaryTermination) Enum() *SummaryTermination {
-	p := new(SummaryTermination)
-	*p = x
-	return p
-}
-
-func (x SummaryTermination) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (SummaryTermination) Descriptor() protoreflect.EnumDescriptor {
-	return file_bridge_proto_enumTypes[2].Descriptor()
-}
-
-func (SummaryTermination) Type() protoreflect.EnumType {
-	return &file_bridge_proto_enumTypes[2]
-}
-
-func (x SummaryTermination) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use SummaryTermination.Descriptor instead.
-func (SummaryTermination) EnumDescriptor() ([]byte, []int) {
-	return file_bridge_proto_rawDescGZIP(), []int{2}
-}
-
-// Terminal failure of a Phi-issued command. safe_message is bounded and
-// contains no credentials, transcripts, or raw provider errors.
-type CommandErrorCode int32
-
-const (
-	CommandErrorCode_COMMAND_ERROR_UNSPECIFIED            CommandErrorCode = 0
-	CommandErrorCode_COMMAND_ERROR_BUSY                   CommandErrorCode = 1
-	CommandErrorCode_COMMAND_ERROR_STALE_SNAPSHOT         CommandErrorCode = 2
-	CommandErrorCode_COMMAND_ERROR_UNSUPPORTED_CAPABILITY CommandErrorCode = 3
-	CommandErrorCode_COMMAND_ERROR_MODEL_FAILURE          CommandErrorCode = 4
-	CommandErrorCode_COMMAND_ERROR_CANCELED               CommandErrorCode = 5
-	CommandErrorCode_COMMAND_ERROR_DEADLINE_EXPIRED       CommandErrorCode = 6
-	CommandErrorCode_COMMAND_ERROR_LIMIT                  CommandErrorCode = 7
-	CommandErrorCode_COMMAND_ERROR_INTERNAL               CommandErrorCode = 8
-	CommandErrorCode_COMMAND_ERROR_DUPLICATE_REQUEST      CommandErrorCode = 9
-)
-
-// Enum value maps for CommandErrorCode.
-var (
-	CommandErrorCode_name = map[int32]string{
-		0: "COMMAND_ERROR_UNSPECIFIED",
-		1: "COMMAND_ERROR_BUSY",
-		2: "COMMAND_ERROR_STALE_SNAPSHOT",
-		3: "COMMAND_ERROR_UNSUPPORTED_CAPABILITY",
-		4: "COMMAND_ERROR_MODEL_FAILURE",
-		5: "COMMAND_ERROR_CANCELED",
-		6: "COMMAND_ERROR_DEADLINE_EXPIRED",
-		7: "COMMAND_ERROR_LIMIT",
-		8: "COMMAND_ERROR_INTERNAL",
-		9: "COMMAND_ERROR_DUPLICATE_REQUEST",
-	}
-	CommandErrorCode_value = map[string]int32{
-		"COMMAND_ERROR_UNSPECIFIED":            0,
-		"COMMAND_ERROR_BUSY":                   1,
-		"COMMAND_ERROR_STALE_SNAPSHOT":         2,
-		"COMMAND_ERROR_UNSUPPORTED_CAPABILITY": 3,
-		"COMMAND_ERROR_MODEL_FAILURE":          4,
-		"COMMAND_ERROR_CANCELED":               5,
-		"COMMAND_ERROR_DEADLINE_EXPIRED":       6,
-		"COMMAND_ERROR_LIMIT":                  7,
-		"COMMAND_ERROR_INTERNAL":               8,
-		"COMMAND_ERROR_DUPLICATE_REQUEST":      9,
-	}
-)
-
-func (x CommandErrorCode) Enum() *CommandErrorCode {
-	p := new(CommandErrorCode)
-	*p = x
-	return p
-}
-
-func (x CommandErrorCode) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (CommandErrorCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_bridge_proto_enumTypes[3].Descriptor()
-}
-
-func (CommandErrorCode) Type() protoreflect.EnumType {
-	return &file_bridge_proto_enumTypes[3]
-}
-
-func (x CommandErrorCode) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use CommandErrorCode.Descriptor instead.
-func (CommandErrorCode) EnumDescriptor() ([]byte, []int) {
-	return file_bridge_proto_rawDescGZIP(), []int{3}
-}
-
-type CancelReason int32
-
-const (
-	CancelReason_CANCEL_REASON_UNSPECIFIED CancelReason = 0
-	CancelReason_CANCEL_REASON_USER        CancelReason = 1
-	CancelReason_CANCEL_REASON_DISCONNECT  CancelReason = 2
-	CancelReason_CANCEL_REASON_REPLACEMENT CancelReason = 3
-	CancelReason_CANCEL_REASON_NEW_RUN     CancelReason = 4
-	CancelReason_CANCEL_REASON_DEADLINE    CancelReason = 5
-)
-
-// Enum value maps for CancelReason.
-var (
-	CancelReason_name = map[int32]string{
-		0: "CANCEL_REASON_UNSPECIFIED",
-		1: "CANCEL_REASON_USER",
-		2: "CANCEL_REASON_DISCONNECT",
-		3: "CANCEL_REASON_REPLACEMENT",
-		4: "CANCEL_REASON_NEW_RUN",
-		5: "CANCEL_REASON_DEADLINE",
-	}
-	CancelReason_value = map[string]int32{
-		"CANCEL_REASON_UNSPECIFIED": 0,
-		"CANCEL_REASON_USER":        1,
-		"CANCEL_REASON_DISCONNECT":  2,
-		"CANCEL_REASON_REPLACEMENT": 3,
-		"CANCEL_REASON_NEW_RUN":     4,
-		"CANCEL_REASON_DEADLINE":    5,
-	}
-)
-
-func (x CancelReason) Enum() *CancelReason {
-	p := new(CancelReason)
-	*p = x
-	return p
-}
-
-func (x CancelReason) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (CancelReason) Descriptor() protoreflect.EnumDescriptor {
-	return file_bridge_proto_enumTypes[4].Descriptor()
-}
-
-func (CancelReason) Type() protoreflect.EnumType {
-	return &file_bridge_proto_enumTypes[4]
-}
-
-func (x CancelReason) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use CancelReason.Descriptor instead.
-func (CancelReason) EnumDescriptor() ([]byte, []int) {
-	return file_bridge_proto_rawDescGZIP(), []int{4}
-}
-
 type ProtocolErrorCode int32
 
 const (
@@ -362,11 +179,11 @@ func (x ProtocolErrorCode) String() string {
 }
 
 func (ProtocolErrorCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_bridge_proto_enumTypes[5].Descriptor()
+	return file_bridge_proto_enumTypes[2].Descriptor()
 }
 
 func (ProtocolErrorCode) Type() protoreflect.EnumType {
-	return &file_bridge_proto_enumTypes[5]
+	return &file_bridge_proto_enumTypes[2]
 }
 
 func (x ProtocolErrorCode) Number() protoreflect.EnumNumber {
@@ -375,7 +192,7 @@ func (x ProtocolErrorCode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ProtocolErrorCode.Descriptor instead.
 func (ProtocolErrorCode) EnumDescriptor() ([]byte, []int) {
-	return file_bridge_proto_rawDescGZIP(), []int{5}
+	return file_bridge_proto_rawDescGZIP(), []int{2}
 }
 
 // Envelope for every Pi → Phi message. The identity fields are repeated on
@@ -391,9 +208,6 @@ type PiToPhi struct {
 	//	*PiToPhi_AgentStarted
 	//	*PiToPhi_AgentSettled
 	//	*PiToPhi_StateSnapshot
-	//	*PiToPhi_SummaryResult
-	//	*PiToPhi_CommandError
-	//	*PiToPhi_CancelAcknowledged
 	Payload       isPiToPhi_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -493,33 +307,6 @@ func (x *PiToPhi) GetStateSnapshot() *StateSnapshot {
 	return nil
 }
 
-func (x *PiToPhi) GetSummaryResult() *SummaryResult {
-	if x != nil {
-		if x, ok := x.Payload.(*PiToPhi_SummaryResult); ok {
-			return x.SummaryResult
-		}
-	}
-	return nil
-}
-
-func (x *PiToPhi) GetCommandError() *CommandError {
-	if x != nil {
-		if x, ok := x.Payload.(*PiToPhi_CommandError); ok {
-			return x.CommandError
-		}
-	}
-	return nil
-}
-
-func (x *PiToPhi) GetCancelAcknowledged() *CancelAcknowledged {
-	if x != nil {
-		if x, ok := x.Payload.(*PiToPhi_CancelAcknowledged); ok {
-			return x.CancelAcknowledged
-		}
-	}
-	return nil
-}
-
 type isPiToPhi_Payload interface {
 	isPiToPhi_Payload()
 }
@@ -540,18 +327,6 @@ type PiToPhi_StateSnapshot struct {
 	StateSnapshot *StateSnapshot `protobuf:"bytes,13,opt,name=state_snapshot,json=stateSnapshot,proto3,oneof"`
 }
 
-type PiToPhi_SummaryResult struct {
-	SummaryResult *SummaryResult `protobuf:"bytes,14,opt,name=summary_result,json=summaryResult,proto3,oneof"`
-}
-
-type PiToPhi_CommandError struct {
-	CommandError *CommandError `protobuf:"bytes,15,opt,name=command_error,json=commandError,proto3,oneof"`
-}
-
-type PiToPhi_CancelAcknowledged struct {
-	CancelAcknowledged *CancelAcknowledged `protobuf:"bytes,16,opt,name=cancel_acknowledged,json=cancelAcknowledged,proto3,oneof"`
-}
-
 func (*PiToPhi_Hello) isPiToPhi_Payload() {}
 
 func (*PiToPhi_AgentStarted) isPiToPhi_Payload() {}
@@ -559,12 +334,6 @@ func (*PiToPhi_AgentStarted) isPiToPhi_Payload() {}
 func (*PiToPhi_AgentSettled) isPiToPhi_Payload() {}
 
 func (*PiToPhi_StateSnapshot) isPiToPhi_Payload() {}
-
-func (*PiToPhi_SummaryResult) isPiToPhi_Payload() {}
-
-func (*PiToPhi_CommandError) isPiToPhi_Payload() {}
-
-func (*PiToPhi_CancelAcknowledged) isPiToPhi_Payload() {}
 
 // Envelope for every Phi → Pi message.
 type PhiToPi struct {
@@ -575,8 +344,6 @@ type PhiToPi struct {
 	// Types that are valid to be assigned to Payload:
 	//
 	//	*PhiToPi_Accepted
-	//	*PhiToPi_Summarize
-	//	*PhiToPi_Cancel
 	//	*PhiToPi_ProtocolError
 	Payload       isPhiToPi_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
@@ -650,24 +417,6 @@ func (x *PhiToPi) GetAccepted() *Accepted {
 	return nil
 }
 
-func (x *PhiToPi) GetSummarize() *Summarize {
-	if x != nil {
-		if x, ok := x.Payload.(*PhiToPi_Summarize); ok {
-			return x.Summarize
-		}
-	}
-	return nil
-}
-
-func (x *PhiToPi) GetCancel() *Cancel {
-	if x != nil {
-		if x, ok := x.Payload.(*PhiToPi_Cancel); ok {
-			return x.Cancel
-		}
-	}
-	return nil
-}
-
 func (x *PhiToPi) GetProtocolError() *ProtocolError {
 	if x != nil {
 		if x, ok := x.Payload.(*PhiToPi_ProtocolError); ok {
@@ -685,23 +434,11 @@ type PhiToPi_Accepted struct {
 	Accepted *Accepted `protobuf:"bytes,10,opt,name=accepted,proto3,oneof"`
 }
 
-type PhiToPi_Summarize struct {
-	Summarize *Summarize `protobuf:"bytes,11,opt,name=summarize,proto3,oneof"`
-}
-
-type PhiToPi_Cancel struct {
-	Cancel *Cancel `protobuf:"bytes,12,opt,name=cancel,proto3,oneof"`
-}
-
 type PhiToPi_ProtocolError struct {
 	ProtocolError *ProtocolError `protobuf:"bytes,13,opt,name=protocol_error,json=protocolError,proto3,oneof"`
 }
 
 func (*PhiToPi_Accepted) isPhiToPi_Payload() {}
-
-func (*PhiToPi_Summarize) isPhiToPi_Payload() {}
-
-func (*PhiToPi_Cancel) isPhiToPi_Payload() {}
 
 func (*PhiToPi_ProtocolError) isPhiToPi_Payload() {}
 
@@ -710,8 +447,6 @@ func (*PhiToPi_ProtocolError) isPhiToPi_Payload() {}
 type Hello struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	ProtocolVersion      uint32                 `protobuf:"varint,1,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	PackageVersion       string                 `protobuf:"bytes,2,opt,name=package_version,json=packageVersion,proto3" json:"package_version,omitempty"`
-	HostVersion          string                 `protobuf:"bytes,3,opt,name=host_version,json=hostVersion,proto3" json:"host_version,omitempty"`
 	SessionId            string                 `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	RuntimeId            string                 `protobuf:"bytes,5,opt,name=runtime_id,json=runtimeId,proto3" json:"runtime_id,omitempty"`
 	Capabilities         []string               `protobuf:"bytes,6,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
@@ -757,20 +492,6 @@ func (x *Hello) GetProtocolVersion() uint32 {
 		return x.ProtocolVersion
 	}
 	return 0
-}
-
-func (x *Hello) GetPackageVersion() string {
-	if x != nil {
-		return x.PackageVersion
-	}
-	return ""
-}
-
-func (x *Hello) GetHostVersion() string {
-	if x != nil {
-		return x.HostVersion
-	}
-	return ""
 }
 
 func (x *Hello) GetSessionId() string {
@@ -1071,7 +792,7 @@ func (x *LifecycleRecord) GetOutcome() RunOutcome {
 	return RunOutcome_RUN_OUTCOME_UNSPECIFIED
 }
 
-// Selected or reported model identity for a summary snapshot.
+// Active model identity for lifecycle snapshots.
 type ModelSnapshot struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Provider      string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
@@ -1124,78 +845,23 @@ func (x *ModelSnapshot) GetModel() string {
 	return ""
 }
 
-// Termination state of one outstanding summary request, for admission
-// accounting across reconnects and runtime replacement.
-type OutstandingSummary struct {
+// Authoritative current state, sent on attach, reconnect, and transitions.
+type StateSnapshot struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     uint64                 `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Termination   SummaryTermination     `protobuf:"varint,2,opt,name=termination,proto3,enum=phi.pi.v1.SummaryTermination" json:"termination,omitempty"`
+	State         LogicalState           `protobuf:"varint,1,opt,name=state,proto3,enum=phi.pi.v1.LogicalState" json:"state,omitempty"`
+	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	LeafId        string                 `protobuf:"bytes,3,opt,name=leaf_id,json=leafId,proto3" json:"leaf_id,omitempty"`
+	Model         *ModelSnapshot         `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
+	Journal       []*LifecycleRecord     `protobuf:"bytes,5,rep,name=journal,proto3" json:"journal,omitempty"`
+	JournalGap    bool                   `protobuf:"varint,6,opt,name=journal_gap,json=journalGap,proto3" json:"journal_gap,omitempty"`
+	StateRevision uint64                 `protobuf:"varint,7,opt,name=state_revision,json=stateRevision,proto3" json:"state_revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *OutstandingSummary) Reset() {
-	*x = OutstandingSummary{}
-	mi := &file_bridge_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *OutstandingSummary) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*OutstandingSummary) ProtoMessage() {}
-
-func (x *OutstandingSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_bridge_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use OutstandingSummary.ProtoReflect.Descriptor instead.
-func (*OutstandingSummary) Descriptor() ([]byte, []int) {
-	return file_bridge_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *OutstandingSummary) GetRequestId() uint64 {
-	if x != nil {
-		return x.RequestId
-	}
-	return 0
-}
-
-func (x *OutstandingSummary) GetTermination() SummaryTermination {
-	if x != nil {
-		return x.Termination
-	}
-	return SummaryTermination_SUMMARY_TERMINATION_UNSPECIFIED
-}
-
-// Authoritative current state, sent on attach, reconnect, and transitions.
-type StateSnapshot struct {
-	state                protoimpl.MessageState `protogen:"open.v1"`
-	State                LogicalState           `protobuf:"varint,1,opt,name=state,proto3,enum=phi.pi.v1.LogicalState" json:"state,omitempty"`
-	SessionId            string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	LeafId               string                 `protobuf:"bytes,3,opt,name=leaf_id,json=leafId,proto3" json:"leaf_id,omitempty"`
-	Model                *ModelSnapshot         `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
-	Journal              []*LifecycleRecord     `protobuf:"bytes,5,rep,name=journal,proto3" json:"journal,omitempty"`
-	JournalGap           bool                   `protobuf:"varint,6,opt,name=journal_gap,json=journalGap,proto3" json:"journal_gap,omitempty"`
-	StateRevision        uint64                 `protobuf:"varint,7,opt,name=state_revision,json=stateRevision,proto3" json:"state_revision,omitempty"`
-	OutstandingSummaries []*OutstandingSummary  `protobuf:"bytes,8,rep,name=outstanding_summaries,json=outstandingSummaries,proto3" json:"outstanding_summaries,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
-}
-
 func (x *StateSnapshot) Reset() {
 	*x = StateSnapshot{}
-	mi := &file_bridge_proto_msgTypes[9]
+	mi := &file_bridge_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1207,7 +873,7 @@ func (x *StateSnapshot) String() string {
 func (*StateSnapshot) ProtoMessage() {}
 
 func (x *StateSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_bridge_proto_msgTypes[9]
+	mi := &file_bridge_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1220,7 +886,7 @@ func (x *StateSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateSnapshot.ProtoReflect.Descriptor instead.
 func (*StateSnapshot) Descriptor() ([]byte, []int) {
-	return file_bridge_proto_rawDescGZIP(), []int{9}
+	return file_bridge_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *StateSnapshot) GetState() LogicalState {
@@ -1272,437 +938,6 @@ func (x *StateSnapshot) GetStateRevision() uint64 {
 	return 0
 }
 
-func (x *StateSnapshot) GetOutstandingSummaries() []*OutstandingSummary {
-	if x != nil {
-		return x.OutstandingSummaries
-	}
-	return nil
-}
-
-// Token usage for one summary. proto3 optionals distinguish missing usage
-// and missing cost from zero.
-type Usage struct {
-	state        protoimpl.MessageState `protogen:"open.v1"`
-	InputTokens  *uint64                `protobuf:"varint,1,opt,name=input_tokens,json=inputTokens,proto3,oneof" json:"input_tokens,omitempty"`
-	OutputTokens *uint64                `protobuf:"varint,2,opt,name=output_tokens,json=outputTokens,proto3,oneof" json:"output_tokens,omitempty"`
-	// Cost derived from configured price tables, not a provider bill.
-	CostUsd             *float64 `protobuf:"fixed64,3,opt,name=cost_usd,json=costUsd,proto3,oneof" json:"cost_usd,omitempty"`
-	CostFromPriceTables bool     `protobuf:"varint,4,opt,name=cost_from_price_tables,json=costFromPriceTables,proto3" json:"cost_from_price_tables,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
-}
-
-func (x *Usage) Reset() {
-	*x = Usage{}
-	mi := &file_bridge_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Usage) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Usage) ProtoMessage() {}
-
-func (x *Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_bridge_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Usage.ProtoReflect.Descriptor instead.
-func (*Usage) Descriptor() ([]byte, []int) {
-	return file_bridge_proto_rawDescGZIP(), []int{10}
-}
-
-func (x *Usage) GetInputTokens() uint64 {
-	if x != nil && x.InputTokens != nil {
-		return *x.InputTokens
-	}
-	return 0
-}
-
-func (x *Usage) GetOutputTokens() uint64 {
-	if x != nil && x.OutputTokens != nil {
-		return *x.OutputTokens
-	}
-	return 0
-}
-
-func (x *Usage) GetCostUsd() float64 {
-	if x != nil && x.CostUsd != nil {
-		return *x.CostUsd
-	}
-	return 0
-}
-
-func (x *Usage) GetCostFromPriceTables() bool {
-	if x != nil {
-		return x.CostFromPriceTables
-	}
-	return false
-}
-
-// Result of one explicit summary request. Carries snapshot identities so Phi
-// can reject stale results.
-type SummaryResult struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     uint64                 `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	LeafId        string                 `protobuf:"bytes,3,opt,name=leaf_id,json=leafId,proto3" json:"leaf_id,omitempty"`
-	Text          string                 `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
-	SelectedModel *ModelSnapshot         `protobuf:"bytes,5,opt,name=selected_model,json=selectedModel,proto3" json:"selected_model,omitempty"`
-	ReportedModel *ModelSnapshot         `protobuf:"bytes,6,opt,name=reported_model,json=reportedModel,proto3" json:"reported_model,omitempty"`
-	Usage         *Usage                 `protobuf:"bytes,7,opt,name=usage,proto3" json:"usage,omitempty"`
-	StateRevision uint64                 `protobuf:"varint,8,opt,name=state_revision,json=stateRevision,proto3" json:"state_revision,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SummaryResult) Reset() {
-	*x = SummaryResult{}
-	mi := &file_bridge_proto_msgTypes[11]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SummaryResult) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SummaryResult) ProtoMessage() {}
-
-func (x *SummaryResult) ProtoReflect() protoreflect.Message {
-	mi := &file_bridge_proto_msgTypes[11]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SummaryResult.ProtoReflect.Descriptor instead.
-func (*SummaryResult) Descriptor() ([]byte, []int) {
-	return file_bridge_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *SummaryResult) GetRequestId() uint64 {
-	if x != nil {
-		return x.RequestId
-	}
-	return 0
-}
-
-func (x *SummaryResult) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
-}
-
-func (x *SummaryResult) GetLeafId() string {
-	if x != nil {
-		return x.LeafId
-	}
-	return ""
-}
-
-func (x *SummaryResult) GetText() string {
-	if x != nil {
-		return x.Text
-	}
-	return ""
-}
-
-func (x *SummaryResult) GetSelectedModel() *ModelSnapshot {
-	if x != nil {
-		return x.SelectedModel
-	}
-	return nil
-}
-
-func (x *SummaryResult) GetReportedModel() *ModelSnapshot {
-	if x != nil {
-		return x.ReportedModel
-	}
-	return nil
-}
-
-func (x *SummaryResult) GetUsage() *Usage {
-	if x != nil {
-		return x.Usage
-	}
-	return nil
-}
-
-func (x *SummaryResult) GetStateRevision() uint64 {
-	if x != nil {
-		return x.StateRevision
-	}
-	return 0
-}
-
-type CommandError struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     uint64                 `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Code          CommandErrorCode       `protobuf:"varint,2,opt,name=code,proto3,enum=phi.pi.v1.CommandErrorCode" json:"code,omitempty"`
-	SafeMessage   string                 `protobuf:"bytes,3,opt,name=safe_message,json=safeMessage,proto3" json:"safe_message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *CommandError) Reset() {
-	*x = CommandError{}
-	mi := &file_bridge_proto_msgTypes[12]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *CommandError) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*CommandError) ProtoMessage() {}
-
-func (x *CommandError) ProtoReflect() protoreflect.Message {
-	mi := &file_bridge_proto_msgTypes[12]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use CommandError.ProtoReflect.Descriptor instead.
-func (*CommandError) Descriptor() ([]byte, []int) {
-	return file_bridge_proto_rawDescGZIP(), []int{12}
-}
-
-func (x *CommandError) GetRequestId() uint64 {
-	if x != nil {
-		return x.RequestId
-	}
-	return 0
-}
-
-func (x *CommandError) GetCode() CommandErrorCode {
-	if x != nil {
-		return x.Code
-	}
-	return CommandErrorCode_COMMAND_ERROR_UNSPECIFIED
-}
-
-func (x *CommandError) GetSafeMessage() string {
-	if x != nil {
-		return x.SafeMessage
-	}
-	return ""
-}
-
-// Sent only after the local invocation for the request has actually ended.
-type CancelAcknowledged struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     uint64                 `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Disposition   SummaryTermination     `protobuf:"varint,2,opt,name=disposition,proto3,enum=phi.pi.v1.SummaryTermination" json:"disposition,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *CancelAcknowledged) Reset() {
-	*x = CancelAcknowledged{}
-	mi := &file_bridge_proto_msgTypes[13]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *CancelAcknowledged) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*CancelAcknowledged) ProtoMessage() {}
-
-func (x *CancelAcknowledged) ProtoReflect() protoreflect.Message {
-	mi := &file_bridge_proto_msgTypes[13]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use CancelAcknowledged.ProtoReflect.Descriptor instead.
-func (*CancelAcknowledged) Descriptor() ([]byte, []int) {
-	return file_bridge_proto_rawDescGZIP(), []int{13}
-}
-
-func (x *CancelAcknowledged) GetRequestId() uint64 {
-	if x != nil {
-		return x.RequestId
-	}
-	return 0
-}
-
-func (x *CancelAcknowledged) GetDisposition() SummaryTermination {
-	if x != nil {
-		return x.Disposition
-	}
-	return SummaryTermination_SUMMARY_TERMINATION_UNSPECIFIED
-}
-
-// Phi-initiated summary command. Expected snapshot identities are checked by
-// the extension before any provider work.
-type Summarize struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     uint64                 `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	LeafId        string                 `protobuf:"bytes,3,opt,name=leaf_id,json=leafId,proto3" json:"leaf_id,omitempty"`
-	Model         *ModelSnapshot         `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
-	DeadlineMs    uint64                 `protobuf:"varint,5,opt,name=deadline_ms,json=deadlineMs,proto3" json:"deadline_ms,omitempty"`
-	StateRevision uint64                 `protobuf:"varint,6,opt,name=state_revision,json=stateRevision,proto3" json:"state_revision,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Summarize) Reset() {
-	*x = Summarize{}
-	mi := &file_bridge_proto_msgTypes[14]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Summarize) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Summarize) ProtoMessage() {}
-
-func (x *Summarize) ProtoReflect() protoreflect.Message {
-	mi := &file_bridge_proto_msgTypes[14]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Summarize.ProtoReflect.Descriptor instead.
-func (*Summarize) Descriptor() ([]byte, []int) {
-	return file_bridge_proto_rawDescGZIP(), []int{14}
-}
-
-func (x *Summarize) GetRequestId() uint64 {
-	if x != nil {
-		return x.RequestId
-	}
-	return 0
-}
-
-func (x *Summarize) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
-}
-
-func (x *Summarize) GetLeafId() string {
-	if x != nil {
-		return x.LeafId
-	}
-	return ""
-}
-
-func (x *Summarize) GetModel() *ModelSnapshot {
-	if x != nil {
-		return x.Model
-	}
-	return nil
-}
-
-func (x *Summarize) GetDeadlineMs() uint64 {
-	if x != nil {
-		return x.DeadlineMs
-	}
-	return 0
-}
-
-func (x *Summarize) GetStateRevision() uint64 {
-	if x != nil {
-		return x.StateRevision
-	}
-	return 0
-}
-
-type Cancel struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     uint64                 `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Reason        CancelReason           `protobuf:"varint,2,opt,name=reason,proto3,enum=phi.pi.v1.CancelReason" json:"reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Cancel) Reset() {
-	*x = Cancel{}
-	mi := &file_bridge_proto_msgTypes[15]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Cancel) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Cancel) ProtoMessage() {}
-
-func (x *Cancel) ProtoReflect() protoreflect.Message {
-	mi := &file_bridge_proto_msgTypes[15]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Cancel.ProtoReflect.Descriptor instead.
-func (*Cancel) Descriptor() ([]byte, []int) {
-	return file_bridge_proto_rawDescGZIP(), []int{15}
-}
-
-func (x *Cancel) GetRequestId() uint64 {
-	if x != nil {
-		return x.RequestId
-	}
-	return 0
-}
-
-func (x *Cancel) GetReason() CancelReason {
-	if x != nil {
-		return x.Reason
-	}
-	return CancelReason_CANCEL_REASON_UNSPECIFIED
-}
-
 // Terminal protocol-level rejection. Ends the stream attempt.
 type ProtocolError struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1714,7 +949,7 @@ type ProtocolError struct {
 
 func (x *ProtocolError) Reset() {
 	*x = ProtocolError{}
-	mi := &file_bridge_proto_msgTypes[16]
+	mi := &file_bridge_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1726,7 +961,7 @@ func (x *ProtocolError) String() string {
 func (*ProtocolError) ProtoMessage() {}
 
 func (x *ProtocolError) ProtoReflect() protoreflect.Message {
-	mi := &file_bridge_proto_msgTypes[16]
+	mi := &file_bridge_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1739,7 +974,7 @@ func (x *ProtocolError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProtocolError.ProtoReflect.Descriptor instead.
 func (*ProtocolError) Descriptor() ([]byte, []int) {
-	return file_bridge_proto_rawDescGZIP(), []int{16}
+	return file_bridge_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ProtocolError) GetCode() ProtocolErrorCode {
@@ -1760,7 +995,7 @@ var File_bridge_proto protoreflect.FileDescriptor
 
 const file_bridge_proto_rawDesc = "" +
 	"\n" +
-	"\fbridge.proto\x12\tphi.pi.v1\"\xbd\x04\n" +
+	"\fbridge.proto\x12\tphi.pi.v1\"\xae\x03\n" +
 	"\aPiToPhi\x12\x17\n" +
 	"\apane_id\x18\x01 \x01(\tR\x06paneId\x12\x1d\n" +
 	"\n" +
@@ -1770,26 +1005,19 @@ const file_bridge_proto_rawDesc = "" +
 	" \x01(\v2\x10.phi.pi.v1.HelloH\x00R\x05hello\x12>\n" +
 	"\ragent_started\x18\v \x01(\v2\x17.phi.pi.v1.AgentStartedH\x00R\fagentStarted\x12>\n" +
 	"\ragent_settled\x18\f \x01(\v2\x17.phi.pi.v1.AgentSettledH\x00R\fagentSettled\x12A\n" +
-	"\x0estate_snapshot\x18\r \x01(\v2\x18.phi.pi.v1.StateSnapshotH\x00R\rstateSnapshot\x12A\n" +
-	"\x0esummary_result\x18\x0e \x01(\v2\x18.phi.pi.v1.SummaryResultH\x00R\rsummaryResult\x12>\n" +
-	"\rcommand_error\x18\x0f \x01(\v2\x17.phi.pi.v1.CommandErrorH\x00R\fcommandError\x12P\n" +
-	"\x13cancel_acknowledged\x18\x10 \x01(\v2\x1d.phi.pi.v1.CancelAcknowledgedH\x00R\x12cancelAcknowledgedB\t\n" +
-	"\apayload\"\xd4\x02\n" +
+	"\x0estate_snapshot\x18\r \x01(\v2\x18.phi.pi.v1.StateSnapshotH\x00R\rstateSnapshotB\t\n" +
+	"\apayloadJ\x04\b\x0e\x10\x0fJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11R\x0esummary_resultR\rcommand_errorR\x13cancel_acknowledged\"\x90\x02\n" +
 	"\aPhiToPi\x12\x17\n" +
 	"\apane_id\x18\x01 \x01(\tR\x06paneId\x12\x1d\n" +
 	"\n" +
 	"process_id\x18\x02 \x01(\tR\tprocessId\x12-\n" +
 	"\x12runtime_generation\x18\x03 \x01(\x04R\x11runtimeGeneration\x121\n" +
 	"\baccepted\x18\n" +
-	" \x01(\v2\x13.phi.pi.v1.AcceptedH\x00R\baccepted\x124\n" +
-	"\tsummarize\x18\v \x01(\v2\x14.phi.pi.v1.SummarizeH\x00R\tsummarize\x12+\n" +
-	"\x06cancel\x18\f \x01(\v2\x11.phi.pi.v1.CancelH\x00R\x06cancel\x12A\n" +
+	" \x01(\v2\x13.phi.pi.v1.AcceptedH\x00R\baccepted\x12A\n" +
 	"\x0eprotocol_error\x18\r \x01(\v2\x18.phi.pi.v1.ProtocolErrorH\x00R\rprotocolErrorB\t\n" +
-	"\apayload\"\x89\x03\n" +
+	"\apayloadJ\x04\b\v\x10\fJ\x04\b\f\x10\rR\tsummarizeR\x06cancel\"\xe8\x02\n" +
 	"\x05Hello\x12)\n" +
-	"\x10protocol_version\x18\x01 \x01(\rR\x0fprotocolVersion\x12'\n" +
-	"\x0fpackage_version\x18\x02 \x01(\tR\x0epackageVersion\x12!\n" +
-	"\fhost_version\x18\x03 \x01(\tR\vhostVersion\x12\x1d\n" +
+	"\x10protocol_version\x18\x01 \x01(\rR\x0fprotocolVersion\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x04 \x01(\tR\tsessionId\x12\x1d\n" +
 	"\n" +
@@ -1797,7 +1025,7 @@ const file_bridge_proto_rawDesc = "" +
 	"\fcapabilities\x18\x06 \x03(\tR\fcapabilities\x12=\n" +
 	"\rcurrent_state\x18\a \x01(\v2\x18.phi.pi.v1.StateSnapshotR\fcurrentState\x124\n" +
 	"\x16journal_first_sequence\x18\b \x01(\x04R\x14journalFirstSequence\x122\n" +
-	"\x15journal_last_sequence\x18\t \x01(\x04R\x13journalLastSequence\"\xa7\x01\n" +
+	"\x15journal_last_sequence\x18\t \x01(\x04R\x13journalLastSequenceJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\x0fpackage_versionR\fhost_version\"\xa7\x01\n" +
 	"\bAccepted\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\rR\x0fprotocolVersion\x12\"\n" +
 	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\x12-\n" +
@@ -1818,11 +1046,7 @@ const file_bridge_proto_rawDesc = "" +
 	"\aoutcome\x18\x04 \x01(\x0e2\x15.phi.pi.v1.RunOutcomeR\aoutcome\"A\n" +
 	"\rModelSnapshot\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x14\n" +
-	"\x05model\x18\x02 \x01(\tR\x05model\"t\n" +
-	"\x12OutstandingSummary\x12\x1d\n" +
-	"\n" +
-	"request_id\x18\x01 \x01(\x04R\trequestId\x12?\n" +
-	"\vtermination\x18\x02 \x01(\x0e2\x1d.phi.pi.v1.SummaryTerminationR\vtermination\"\xf8\x02\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\"\xc1\x02\n" +
 	"\rStateSnapshot\x12-\n" +
 	"\x05state\x18\x01 \x01(\x0e2\x17.phi.pi.v1.LogicalStateR\x05state\x12\x1d\n" +
 	"\n" +
@@ -1832,50 +1056,7 @@ const file_bridge_proto_rawDesc = "" +
 	"\ajournal\x18\x05 \x03(\v2\x1a.phi.pi.v1.LifecycleRecordR\ajournal\x12\x1f\n" +
 	"\vjournal_gap\x18\x06 \x01(\bR\n" +
 	"journalGap\x12%\n" +
-	"\x0estate_revision\x18\a \x01(\x04R\rstateRevision\x12R\n" +
-	"\x15outstanding_summaries\x18\b \x03(\v2\x1d.phi.pi.v1.OutstandingSummaryR\x14outstandingSummaries\"\xde\x01\n" +
-	"\x05Usage\x12&\n" +
-	"\finput_tokens\x18\x01 \x01(\x04H\x00R\vinputTokens\x88\x01\x01\x12(\n" +
-	"\routput_tokens\x18\x02 \x01(\x04H\x01R\foutputTokens\x88\x01\x01\x12\x1e\n" +
-	"\bcost_usd\x18\x03 \x01(\x01H\x02R\acostUsd\x88\x01\x01\x123\n" +
-	"\x16cost_from_price_tables\x18\x04 \x01(\bR\x13costFromPriceTablesB\x0f\n" +
-	"\r_input_tokensB\x10\n" +
-	"\x0e_output_tokensB\v\n" +
-	"\t_cost_usd\"\xcb\x02\n" +
-	"\rSummaryResult\x12\x1d\n" +
-	"\n" +
-	"request_id\x18\x01 \x01(\x04R\trequestId\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x17\n" +
-	"\aleaf_id\x18\x03 \x01(\tR\x06leafId\x12\x12\n" +
-	"\x04text\x18\x04 \x01(\tR\x04text\x12?\n" +
-	"\x0eselected_model\x18\x05 \x01(\v2\x18.phi.pi.v1.ModelSnapshotR\rselectedModel\x12?\n" +
-	"\x0ereported_model\x18\x06 \x01(\v2\x18.phi.pi.v1.ModelSnapshotR\rreportedModel\x12&\n" +
-	"\x05usage\x18\a \x01(\v2\x10.phi.pi.v1.UsageR\x05usage\x12%\n" +
-	"\x0estate_revision\x18\b \x01(\x04R\rstateRevision\"\x81\x01\n" +
-	"\fCommandError\x12\x1d\n" +
-	"\n" +
-	"request_id\x18\x01 \x01(\x04R\trequestId\x12/\n" +
-	"\x04code\x18\x02 \x01(\x0e2\x1b.phi.pi.v1.CommandErrorCodeR\x04code\x12!\n" +
-	"\fsafe_message\x18\x03 \x01(\tR\vsafeMessage\"t\n" +
-	"\x12CancelAcknowledged\x12\x1d\n" +
-	"\n" +
-	"request_id\x18\x01 \x01(\x04R\trequestId\x12?\n" +
-	"\vdisposition\x18\x02 \x01(\x0e2\x1d.phi.pi.v1.SummaryTerminationR\vdisposition\"\xda\x01\n" +
-	"\tSummarize\x12\x1d\n" +
-	"\n" +
-	"request_id\x18\x01 \x01(\x04R\trequestId\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x17\n" +
-	"\aleaf_id\x18\x03 \x01(\tR\x06leafId\x12.\n" +
-	"\x05model\x18\x04 \x01(\v2\x18.phi.pi.v1.ModelSnapshotR\x05model\x12\x1f\n" +
-	"\vdeadline_ms\x18\x05 \x01(\x04R\n" +
-	"deadlineMs\x12%\n" +
-	"\x0estate_revision\x18\x06 \x01(\x04R\rstateRevision\"X\n" +
-	"\x06Cancel\x12\x1d\n" +
-	"\n" +
-	"request_id\x18\x01 \x01(\x04R\trequestId\x12/\n" +
-	"\x06reason\x18\x02 \x01(\x0e2\x17.phi.pi.v1.CancelReasonR\x06reason\"d\n" +
+	"\x0estate_revision\x18\a \x01(\x04R\rstateRevisionJ\x04\b\b\x10\tR\x15outstanding_summaries\"d\n" +
 	"\rProtocolError\x120\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x1c.phi.pi.v1.ProtocolErrorCodeR\x04code\x12!\n" +
 	"\fsafe_message\x18\x02 \x01(\tR\vsafeMessage*t\n" +
@@ -1888,30 +1069,7 @@ const file_bridge_proto_rawDesc = "" +
 	"\fLogicalState\x12\x1d\n" +
 	"\x19LOGICAL_STATE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12LOGICAL_STATE_IDLE\x10\x01\x12\x19\n" +
-	"\x15LOGICAL_STATE_RUNNING\x10\x02*\x9a\x01\n" +
-	"\x12SummaryTermination\x12#\n" +
-	"\x1fSUMMARY_TERMINATION_UNSPECIFIED\x10\x00\x12\x1f\n" +
-	"\x1bSUMMARY_TERMINATION_RUNNING\x10\x01\x12\x1d\n" +
-	"\x19SUMMARY_TERMINATION_ENDED\x10\x02\x12\x1f\n" +
-	"\x1bSUMMARY_TERMINATION_UNKNOWN\x10\x03*\xd0\x02\n" +
-	"\x10CommandErrorCode\x12\x1d\n" +
-	"\x19COMMAND_ERROR_UNSPECIFIED\x10\x00\x12\x16\n" +
-	"\x12COMMAND_ERROR_BUSY\x10\x01\x12 \n" +
-	"\x1cCOMMAND_ERROR_STALE_SNAPSHOT\x10\x02\x12(\n" +
-	"$COMMAND_ERROR_UNSUPPORTED_CAPABILITY\x10\x03\x12\x1f\n" +
-	"\x1bCOMMAND_ERROR_MODEL_FAILURE\x10\x04\x12\x1a\n" +
-	"\x16COMMAND_ERROR_CANCELED\x10\x05\x12\"\n" +
-	"\x1eCOMMAND_ERROR_DEADLINE_EXPIRED\x10\x06\x12\x17\n" +
-	"\x13COMMAND_ERROR_LIMIT\x10\a\x12\x1a\n" +
-	"\x16COMMAND_ERROR_INTERNAL\x10\b\x12#\n" +
-	"\x1fCOMMAND_ERROR_DUPLICATE_REQUEST\x10\t*\xb9\x01\n" +
-	"\fCancelReason\x12\x1d\n" +
-	"\x19CANCEL_REASON_UNSPECIFIED\x10\x00\x12\x16\n" +
-	"\x12CANCEL_REASON_USER\x10\x01\x12\x1c\n" +
-	"\x18CANCEL_REASON_DISCONNECT\x10\x02\x12\x1d\n" +
-	"\x19CANCEL_REASON_REPLACEMENT\x10\x03\x12\x19\n" +
-	"\x15CANCEL_REASON_NEW_RUN\x10\x04\x12\x1a\n" +
-	"\x16CANCEL_REASON_DEADLINE\x10\x05*\xe7\x01\n" +
+	"\x15LOGICAL_STATE_RUNNING\x10\x02*\xe7\x01\n" +
 	"\x11ProtocolErrorCode\x12\x1e\n" +
 	"\x1aPROTOCOL_ERROR_UNSPECIFIED\x10\x00\x12&\n" +
 	"\"PROTOCOL_ERROR_UNSUPPORTED_VERSION\x10\x01\x12\x1f\n" +
@@ -1934,68 +1092,44 @@ func file_bridge_proto_rawDescGZIP() []byte {
 	return file_bridge_proto_rawDescData
 }
 
-var file_bridge_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_bridge_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_bridge_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_bridge_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_bridge_proto_goTypes = []any{
-	(RunOutcome)(0),            // 0: phi.pi.v1.RunOutcome
-	(LogicalState)(0),          // 1: phi.pi.v1.LogicalState
-	(SummaryTermination)(0),    // 2: phi.pi.v1.SummaryTermination
-	(CommandErrorCode)(0),      // 3: phi.pi.v1.CommandErrorCode
-	(CancelReason)(0),          // 4: phi.pi.v1.CancelReason
-	(ProtocolErrorCode)(0),     // 5: phi.pi.v1.ProtocolErrorCode
-	(*PiToPhi)(nil),            // 6: phi.pi.v1.PiToPhi
-	(*PhiToPi)(nil),            // 7: phi.pi.v1.PhiToPi
-	(*Hello)(nil),              // 8: phi.pi.v1.Hello
-	(*Accepted)(nil),           // 9: phi.pi.v1.Accepted
-	(*AgentStarted)(nil),       // 10: phi.pi.v1.AgentStarted
-	(*AgentSettled)(nil),       // 11: phi.pi.v1.AgentSettled
-	(*LifecycleRecord)(nil),    // 12: phi.pi.v1.LifecycleRecord
-	(*ModelSnapshot)(nil),      // 13: phi.pi.v1.ModelSnapshot
-	(*OutstandingSummary)(nil), // 14: phi.pi.v1.OutstandingSummary
-	(*StateSnapshot)(nil),      // 15: phi.pi.v1.StateSnapshot
-	(*Usage)(nil),              // 16: phi.pi.v1.Usage
-	(*SummaryResult)(nil),      // 17: phi.pi.v1.SummaryResult
-	(*CommandError)(nil),       // 18: phi.pi.v1.CommandError
-	(*CancelAcknowledged)(nil), // 19: phi.pi.v1.CancelAcknowledged
-	(*Summarize)(nil),          // 20: phi.pi.v1.Summarize
-	(*Cancel)(nil),             // 21: phi.pi.v1.Cancel
-	(*ProtocolError)(nil),      // 22: phi.pi.v1.ProtocolError
+	(RunOutcome)(0),         // 0: phi.pi.v1.RunOutcome
+	(LogicalState)(0),       // 1: phi.pi.v1.LogicalState
+	(ProtocolErrorCode)(0),  // 2: phi.pi.v1.ProtocolErrorCode
+	(*PiToPhi)(nil),         // 3: phi.pi.v1.PiToPhi
+	(*PhiToPi)(nil),         // 4: phi.pi.v1.PhiToPi
+	(*Hello)(nil),           // 5: phi.pi.v1.Hello
+	(*Accepted)(nil),        // 6: phi.pi.v1.Accepted
+	(*AgentStarted)(nil),    // 7: phi.pi.v1.AgentStarted
+	(*AgentSettled)(nil),    // 8: phi.pi.v1.AgentSettled
+	(*LifecycleRecord)(nil), // 9: phi.pi.v1.LifecycleRecord
+	(*ModelSnapshot)(nil),   // 10: phi.pi.v1.ModelSnapshot
+	(*StateSnapshot)(nil),   // 11: phi.pi.v1.StateSnapshot
+	(*ProtocolError)(nil),   // 12: phi.pi.v1.ProtocolError
 }
 var file_bridge_proto_depIdxs = []int32{
-	8,  // 0: phi.pi.v1.PiToPhi.hello:type_name -> phi.pi.v1.Hello
-	10, // 1: phi.pi.v1.PiToPhi.agent_started:type_name -> phi.pi.v1.AgentStarted
-	11, // 2: phi.pi.v1.PiToPhi.agent_settled:type_name -> phi.pi.v1.AgentSettled
-	15, // 3: phi.pi.v1.PiToPhi.state_snapshot:type_name -> phi.pi.v1.StateSnapshot
-	17, // 4: phi.pi.v1.PiToPhi.summary_result:type_name -> phi.pi.v1.SummaryResult
-	18, // 5: phi.pi.v1.PiToPhi.command_error:type_name -> phi.pi.v1.CommandError
-	19, // 6: phi.pi.v1.PiToPhi.cancel_acknowledged:type_name -> phi.pi.v1.CancelAcknowledged
-	9,  // 7: phi.pi.v1.PhiToPi.accepted:type_name -> phi.pi.v1.Accepted
-	20, // 8: phi.pi.v1.PhiToPi.summarize:type_name -> phi.pi.v1.Summarize
-	21, // 9: phi.pi.v1.PhiToPi.cancel:type_name -> phi.pi.v1.Cancel
-	22, // 10: phi.pi.v1.PhiToPi.protocol_error:type_name -> phi.pi.v1.ProtocolError
-	15, // 11: phi.pi.v1.Hello.current_state:type_name -> phi.pi.v1.StateSnapshot
-	0,  // 12: phi.pi.v1.AgentSettled.outcome:type_name -> phi.pi.v1.RunOutcome
-	0,  // 13: phi.pi.v1.LifecycleRecord.outcome:type_name -> phi.pi.v1.RunOutcome
-	2,  // 14: phi.pi.v1.OutstandingSummary.termination:type_name -> phi.pi.v1.SummaryTermination
-	1,  // 15: phi.pi.v1.StateSnapshot.state:type_name -> phi.pi.v1.LogicalState
-	13, // 16: phi.pi.v1.StateSnapshot.model:type_name -> phi.pi.v1.ModelSnapshot
-	12, // 17: phi.pi.v1.StateSnapshot.journal:type_name -> phi.pi.v1.LifecycleRecord
-	14, // 18: phi.pi.v1.StateSnapshot.outstanding_summaries:type_name -> phi.pi.v1.OutstandingSummary
-	13, // 19: phi.pi.v1.SummaryResult.selected_model:type_name -> phi.pi.v1.ModelSnapshot
-	13, // 20: phi.pi.v1.SummaryResult.reported_model:type_name -> phi.pi.v1.ModelSnapshot
-	16, // 21: phi.pi.v1.SummaryResult.usage:type_name -> phi.pi.v1.Usage
-	3,  // 22: phi.pi.v1.CommandError.code:type_name -> phi.pi.v1.CommandErrorCode
-	2,  // 23: phi.pi.v1.CancelAcknowledged.disposition:type_name -> phi.pi.v1.SummaryTermination
-	13, // 24: phi.pi.v1.Summarize.model:type_name -> phi.pi.v1.ModelSnapshot
-	4,  // 25: phi.pi.v1.Cancel.reason:type_name -> phi.pi.v1.CancelReason
-	5,  // 26: phi.pi.v1.ProtocolError.code:type_name -> phi.pi.v1.ProtocolErrorCode
-	6,  // 27: phi.pi.v1.Integration.Connect:input_type -> phi.pi.v1.PiToPhi
-	7,  // 28: phi.pi.v1.Integration.Connect:output_type -> phi.pi.v1.PhiToPi
-	28, // [28:29] is the sub-list for method output_type
-	27, // [27:28] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	5,  // 0: phi.pi.v1.PiToPhi.hello:type_name -> phi.pi.v1.Hello
+	7,  // 1: phi.pi.v1.PiToPhi.agent_started:type_name -> phi.pi.v1.AgentStarted
+	8,  // 2: phi.pi.v1.PiToPhi.agent_settled:type_name -> phi.pi.v1.AgentSettled
+	11, // 3: phi.pi.v1.PiToPhi.state_snapshot:type_name -> phi.pi.v1.StateSnapshot
+	6,  // 4: phi.pi.v1.PhiToPi.accepted:type_name -> phi.pi.v1.Accepted
+	12, // 5: phi.pi.v1.PhiToPi.protocol_error:type_name -> phi.pi.v1.ProtocolError
+	11, // 6: phi.pi.v1.Hello.current_state:type_name -> phi.pi.v1.StateSnapshot
+	0,  // 7: phi.pi.v1.AgentSettled.outcome:type_name -> phi.pi.v1.RunOutcome
+	0,  // 8: phi.pi.v1.LifecycleRecord.outcome:type_name -> phi.pi.v1.RunOutcome
+	1,  // 9: phi.pi.v1.StateSnapshot.state:type_name -> phi.pi.v1.LogicalState
+	10, // 10: phi.pi.v1.StateSnapshot.model:type_name -> phi.pi.v1.ModelSnapshot
+	9,  // 11: phi.pi.v1.StateSnapshot.journal:type_name -> phi.pi.v1.LifecycleRecord
+	2,  // 12: phi.pi.v1.ProtocolError.code:type_name -> phi.pi.v1.ProtocolErrorCode
+	3,  // 13: phi.pi.v1.Integration.Connect:input_type -> phi.pi.v1.PiToPhi
+	4,  // 14: phi.pi.v1.Integration.Connect:output_type -> phi.pi.v1.PhiToPi
+	14, // [14:15] is the sub-list for method output_type
+	13, // [13:14] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_bridge_proto_init() }
@@ -2008,24 +1142,18 @@ func file_bridge_proto_init() {
 		(*PiToPhi_AgentStarted)(nil),
 		(*PiToPhi_AgentSettled)(nil),
 		(*PiToPhi_StateSnapshot)(nil),
-		(*PiToPhi_SummaryResult)(nil),
-		(*PiToPhi_CommandError)(nil),
-		(*PiToPhi_CancelAcknowledged)(nil),
 	}
 	file_bridge_proto_msgTypes[1].OneofWrappers = []any{
 		(*PhiToPi_Accepted)(nil),
-		(*PhiToPi_Summarize)(nil),
-		(*PhiToPi_Cancel)(nil),
 		(*PhiToPi_ProtocolError)(nil),
 	}
-	file_bridge_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bridge_proto_rawDesc), len(file_bridge_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   17,
+			NumEnums:      3,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

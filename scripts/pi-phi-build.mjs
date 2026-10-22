@@ -144,36 +144,3 @@ const bytes = readFileSync(join(distDir, 'pi-phi-extension.cjs')).length;
 console.log(
     `pi-phi runtime bundled: dist/pi-phi-extension.cjs (${bytes} bytes), ${packages.size} packages noticed`,
 );
-
-// The entry shim ships as TypeScript source: the host loader
-// transforms it, so its Pi imports resolve to the host package (a
-// native .cjs gets no aliasing). It must import only the Pi package
-// (types erased, two value helpers) and the sibling bundle.
-const shimSrc = readFileSync(join(pkgDir, 'src', 'entry-shim.ts'), 'utf8');
-const shimImports = [...shimSrc.matchAll(/from\s+['"]([^'"]+)['"]/g)].map(
-    (match) => match[1],
-);
-const shimRequires = [...shimSrc.matchAll(/require\(['"]([^'"]+)['"]\)/g)].map(
-    (match) => match[1],
-);
-for (const spec of shimImports) {
-    if (spec !== '@earendil-works/pi-coding-agent') {
-        console.error(`entry shim imports non-Pi module: ${spec}`);
-        process.exit(1);
-    }
-}
-for (const spec of shimRequires) {
-    if (spec !== './pi-phi-extension.cjs') {
-        console.error(`entry shim requires unexpected file: ${spec}`);
-        process.exit(1);
-    }
-}
-if (
-    !shimSrc.includes('buildSessionContext') ||
-    !shimSrc.includes('generateSummaryWithUsage')
-) {
-    console.error('entry shim must resolve both summary helpers');
-    process.exit(1);
-}
-writeFileSync(join(distDir, 'pi-phi-entry.ts'), shimSrc);
-console.log('pi-phi entry shim staged: dist/pi-phi-entry.ts');

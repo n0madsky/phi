@@ -1,7 +1,7 @@
 // M1 interop fixture: a synthetic Pi runtime over the generated client.
-// It enforces the bounded queue, high-water command mark, metadata shape,
-// and proxy-off dial options the product extension reuses in M2. Not
-// shipped; integration tests own its lifecycle.
+// It enforces the bounded queue, metadata shape, and proxy-off dial
+// options the product extension reuses. Not shipped; integration tests
+// own its lifecycle.
 
 import {
     ChannelCredentials,
@@ -13,22 +13,15 @@ import {
     type Accepted,
     AgentSettled,
     AgentStarted,
-    CancelAcknowledged,
-    CommandError,
-    CommandErrorCode,
     IntegrationClient,
     type PhiToPi,
     PiToPhi,
     type StateSnapshot,
-    SummaryResult,
-    type SummaryTermination,
 } from './gen/bridge.js';
-import { CommandTracker } from './commands.js';
 import { parseTarget } from './endpoint.js';
 import {
     BLOCKED_SEND_TIMEOUT_MS,
     CAPABILITY_LIFECYCLE,
-    CAPABILITY_SUMMARY,
     HELLO_DEADLINE_MS,
     MAX_MESSAGE_BYTES,
     METADATA_PANE_KEY,
@@ -55,28 +48,13 @@ interface QueuedFrame {
     readonly msg: PiToPhi;
 }
 
-export type SummaryHandler = (
-    requestId: bigint,
-    sessionId: string,
-    leafId: string,
-    deadlineMs: bigint,
-    revision: bigint,
-) => Promise<{
-    text?: string;
-    error?: { code: CommandErrorCode; safeMessage: string };
-}>;
-
-/** Synthetic runtime with queue, tracker, and explicit stream status. */
+/** Synthetic runtime with queue and explicit stream status. */
 export class BridgeTestClient {
     readonly pane: string;
     readonly process: string;
     readonly generation: bigint;
     readonly runtimeId: string;
     readonly sessionId: string;
-    readonly tracker = new CommandTracker();
-
-    onSummary: SummaryHandler | null = null;
-    onCancel: ((requestId: bigint) => void) | null = null;
 
     private client: IntegrationClient;
     private stream: ClientDuplexStream<PiToPhi, PhiToPi> | null = null;
@@ -102,10 +80,7 @@ export class BridgeTestClient {
         this.generation = opts.generation ?? 1n;
         this.runtimeId = opts.runtimeId ?? `rt-${opts.pane}`;
         this.sessionId = opts.sessionId ?? `sess-${opts.pane}`;
-        this.capabilities = opts.capabilities ?? [
-            CAPABILITY_LIFECYCLE,
-            CAPABILITY_SUMMARY,
-        ];
+        this.capabilities = opts.capabilities ?? [CAPABILITY_LIFECYCLE];
         this.state = opts.state;
 
         this.client = new IntegrationClient(
@@ -165,8 +140,6 @@ export class BridgeTestClient {
                 value: {
                     protocolVersion:
                         this.helloOverride.protocolVersion ?? PROTOCOL_VERSION,
-                    packageVersion: '0.1.0',
-                    hostVersion: 'test',
                     sessionId: this.helloOverride.sessionId ?? this.sessionId,
                     runtimeId: this.helloOverride.runtimeId ?? this.runtimeId,
                     capabilities: this.capabilities,
@@ -227,69 +200,6 @@ export class BridgeTestClient {
             else this.acceptedQueue.push(payload.value);
             return;
         }
-        if (payload?.$case === 'summarize') {
-            const s = payload.value;
-            const disposition = this.tracker.noteSummarize(s.requestId);
-            if (disposition === 'duplicate' || this.onSummary === null) {
-                this.enqueueFrame({
-                    paneId: this.pane,
-                    processId: this.process,
-                    runtimeGeneration: this.generation,
-                    payload: {
-                        $case: 'commandError',
-                        value: CommandError.create({
-                            requestId: s.requestId,
-                            code: CommandErrorCode.COMMAND_ERROR_DUPLICATE_REQUEST,
-                            safeMessage: 'duplicate request',
-                        }),
-                    },
-                });
-                void this.pumpWriter();
-                return;
-            }
-            try {
-                const out = await this.onSummary(
-                    s.requestId,
-                    s.sessionId,
-                    s.leafId,
-                    s.deadlineMs,
-                    s.stateRevision,
-                );
-                if (out.error) {
-                    this.sendCommandError(
-                        s.requestId,
-                        out.error.code,
-                        out.error.safeMessage,
-                    );
-                } else {
-                    this.sendSummaryResult(
-                        s.requestId,
-                        s.sessionId,
-                        s.leafId,
-                        out.text ?? '',
-                        s.stateRevision,
-                    );
-                }
-            } catch (err) {
-                const safe =
-                    err instanceof Error
-                        ? err.message.slice(0, 256)
-                        : 'handler failed';
-                this.sendCommandError(
-                    s.requestId,
-                    CommandErrorCode.COMMAND_ERROR_INTERNAL,
-                    safe,
-                );
-            } finally {
-                this.tracker.complete(s.requestId);
-            }
-            return;
-        }
-        if (payload?.$case === 'cancel') {
-            this.tracker.noteCancel(payload.value.requestId);
-            this.onCancel?.(payload.value.requestId);
-            return;
-        }
         // ProtocolError and unknown oneofs are informational; stream status
         // carries terminal failures.
     }
@@ -337,61 +247,6 @@ export class BridgeTestClient {
     /** Send a raw message, bypassing helpers for negative tests. */
     sendRaw(msg: PiToPhi): void {
         this.enqueueFrame(msg);
-        void this.pumpWriter();
-    }
-
-    sendSummaryResult(
-        requestId: bigint,
-        sessionId: string,
-        leafId: string,
-        text: string,
-        revision: bigint,
-    ): void {
-        this.enqueueFrame({
-            paneId: this.pane,
-            processId: this.process,
-            runtimeGeneration: this.generation,
-            payload: {
-                $case: 'summaryResult',
-                value: SummaryResult.create({
-                    requestId,
-                    sessionId,
-                    leafId,
-                    text,
-                    stateRevision: revision,
-                }),
-            },
-        });
-        void this.pumpWriter();
-    }
-
-    sendCommandError(
-        requestId: bigint,
-        code: CommandErrorCode,
-        safeMessage: string,
-    ): void {
-        this.enqueueFrame({
-            paneId: this.pane,
-            processId: this.process,
-            runtimeGeneration: this.generation,
-            payload: {
-                $case: 'commandError',
-                value: CommandError.create({ requestId, code, safeMessage }),
-            },
-        });
-        void this.pumpWriter();
-    }
-
-    sendCancelAck(requestId: bigint, disposition: SummaryTermination): void {
-        this.enqueueFrame({
-            paneId: this.pane,
-            processId: this.process,
-            runtimeGeneration: this.generation,
-            payload: {
-                $case: 'cancelAcknowledged',
-                value: CancelAcknowledged.create({ requestId, disposition }),
-            },
-        });
         void this.pumpWriter();
     }
 

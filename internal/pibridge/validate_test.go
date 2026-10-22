@@ -87,21 +87,9 @@ func TestMetadataSizeBound(t *testing.T) {
 	}
 }
 
-func TestSafeMessageBound(t *testing.T) {
-	if err := checkSafeMessage("ok"); err != nil {
-		t.Fatalf("short message rejected: %v", err)
-	}
-	if err := checkSafeMessage(strings.Repeat("e", maxSafeMessageBytes+1)); err == nil {
-		t.Fatal("oversized safe message accepted")
-	}
-	if err := checkSafeMessage(string([]byte{0xff, 0xfe})); err == nil {
-		t.Fatal("invalid UTF-8 accepted")
-	}
-}
-
 func TestNegotiateCapabilities(t *testing.T) {
-	got := negotiateCapabilities([]string{CapabilityLifecycle, CapabilitySummary, "unknown.future.v9"})
-	if !got[CapabilityLifecycle] || !got[CapabilitySummary] {
+	got := negotiateCapabilities([]string{CapabilityLifecycle, "unknown.future.v9"})
+	if !got[CapabilityLifecycle] {
 		t.Fatalf("known caps dropped: %v", got)
 	}
 	if got["unknown.future.v9"] {

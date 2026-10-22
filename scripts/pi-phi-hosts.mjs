@@ -89,10 +89,6 @@ copyFileSync(
     join(root, 'bonus', 'pi-phi', 'dist', 'pi-phi-extension.cjs'),
     join(extDir, 'pi-phi-extension.cjs'),
 );
-copyFileSync(
-    join(root, 'bonus', 'pi-phi', 'dist', 'pi-phi-entry.ts'),
-    join(extDir, 'pi-phi-entry.ts'),
-);
 const probePath = join(extDir, 'probe.cjs');
 writeFileSync(
     probePath,
@@ -113,7 +109,7 @@ writeFileSync(
 );
 const extFiles = readdirSync(extDir).sort();
 if (
-    extFiles.join(',') !== 'pi-phi-entry.ts,pi-phi-extension.cjs,probe.cjs' ||
+    extFiles.join(',') !== 'pi-phi-extension.cjs,probe.cjs' ||
     !extDir.includes(' ')
 ) {
     fail(
@@ -316,7 +312,7 @@ for (const version of versions) {
         '--model',
         'hosts-stub/probe',
         '--extension',
-        join(extDir, 'pi-phi-entry.ts'),
+        join(extDir, 'pi-phi-extension.cjs'),
         '--extension',
         probePath,
         '--',
@@ -405,7 +401,7 @@ for (const version of versions) {
         if (view.generation !== '1')
             fail(version.name, 'generation', view.generation);
         if (!view.runtimeId) fail(version.name, 'runtime id missing');
-        if ((view.caps || []).join(',') !== 'pi.lifecycle.v1,pi.summary.v1') {
+        if ((view.caps || []).join(',') !== 'pi.lifecycle.v1') {
             fail(version.name, 'accepted caps', (view.caps || []).join(','));
         }
         if (view.session !== events[0]?.session)
@@ -451,7 +447,7 @@ for (const version of versions) {
         '--model',
         'hosts-stub/probe',
         '--extension',
-        join(extDir, 'pi-phi-entry.ts'),
+        join(extDir, 'pi-phi-extension.cjs'),
         '--',
         'say hello',
     ];

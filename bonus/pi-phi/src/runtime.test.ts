@@ -2,17 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { ServiceError } from '@grpc/grpc-js';
 import {
     type AgentSettled,
-    CommandErrorCode,
     LogicalState,
-    type PhiToPi,
     type PiToPhi,
     RunOutcome,
-    Summarize,
 } from './gen/bridge.js';
-import { CAPABILITY_LIFECYCLE, CAPABILITY_SUMMARY } from './protocol.js';
+import { CAPABILITY_LIFECYCLE } from './protocol.js';
 import type { ChannelCreds, ChannelHooks } from './channel.js';
 import { type PiContextView, Runtime, type RuntimeChannel } from './runtime.js';
-import type { SummaryHelpers } from './summary.js';
 
 const CREDS: ChannelCreds = {
     target: 'unix:/tmp/test.sock',
@@ -31,80 +27,6 @@ function ctx(over: Partial<PiContextView> = {}): PiContextView {
             id: 'm',
         } as unknown as PiContextView['model'],
         ...over,
-    };
-}
-
-/** Full summary surface over the lifecycle-only ctx shape. */
-function fullCtx(over: Partial<PiContextView> = {}): PiContextView {
-    return ctx({
-        sessionManager: {
-            getSessionId: () => 'sess',
-            getLeafId: () => 'leaf',
-            getBranch: () => [{ id: 'e1' }] as never,
-        },
-        modelRegistry: { streamSimple: () => fakeStream() } as never,
-        isIdle: () => true,
-        hasPendingMessages: () => false,
-        getContextUsage: () => ({
-            tokens: 10,
-            contextWindow: 100000,
-            percent: 0.01,
-        }),
-        ...over,
-    });
-}
-
-function fakeStream(): AsyncIterable<unknown> & { result(): Promise<unknown> } {
-    return {
-        async *[Symbol.asyncIterator]() {
-            yield {
-                type: 'text_delta',
-                contentIndex: 0,
-                delta: 'ok',
-                partial: {},
-            };
-        },
-        result: async () => ({ stopReason: 'stop', model: 'm' }),
-    };
-}
-
-function fakeHelpers(): SummaryHelpers {
-    return {
-        buildSessionContext: (() => ({
-            messages: [
-                { role: 'user', content: [{ type: 'text', text: 'hi' }] },
-            ],
-            thinkingLevel: undefined,
-            model: undefined,
-        })) as never,
-        generateSummaryWithUsage: (async (
-            _messages: unknown,
-            _model: unknown,
-            _reserve: number,
-            _apiKey: unknown,
-            _headers: unknown,
-            signal: AbortSignal,
-            _instructions: string,
-            _previous: unknown,
-            _thinking: unknown,
-            streamFn: (...args: never[]) => { result(): Promise<unknown> },
-        ) => {
-            const stream = streamFn(
-                {} as never,
-                {} as never,
-                { signal } as never,
-            );
-            await stream.result();
-            return {
-                text: 'Summary.',
-                usage: {
-                    input: 1,
-                    output: 1,
-                    totalTokens: 2,
-                    cost: { total: 0 },
-                },
-            };
-        }) as never,
     };
 }
 
@@ -238,6 +160,7 @@ describe('Runtime lifecycle mapping', () => {
         rt.onAgentSettled(ctx(), false);
         expect(ch.sends).toHaveLength(0);
         rt.onAgentStart(ctx());
+        rt.onAgentEnd('stop');
         rt.onAgentSettled(ctx(), false);
         const settled = ch.sends.filter(
             (m) => payloadOf(m).$case === 'agentSettled',
@@ -267,6 +190,7 @@ describe('Runtime lifecycle mapping', () => {
         rt.onAgentStart(ctx());
         rt.onAgentSettled(ctx(), true);
         rt.onAgentStart(ctx());
+        rt.onAgentEnd('stop');
         rt.onAgentSettled(ctx(), false);
         const settled = ch.sends.filter(
             (m) => payloadOf(m).$case === 'agentSettled',
@@ -281,6 +205,43 @@ describe('Runtime lifecycle mapping', () => {
         expect(outcomes).toEqual([
             RunOutcome.RUN_OUTCOME_ABORTED,
             RunOutcome.RUN_OUTCOME_COMPLETED,
+        ]);
+        rt.shutdown();
+    });
+
+    it('maps stop evidence to error and missing evidence to unknown', async () => {
+        const ch = mockChannel();
+        const rt = new Runtime({
+            creds: CREDS,
+            generation: 1n,
+            makeChannel: wired(ch),
+        });
+        const settledOutcomes = (): Array<RunOutcome | undefined> =>
+            ch.sends
+                .filter((m) => payloadOf(m).$case === 'agentSettled')
+                .map((m) => {
+                    const p = payloadOf(m);
+                    return p.$case === 'agentSettled'
+                        ? (p.value as AgentSettled).outcome
+                        : undefined;
+                });
+        rt.start(ctx());
+        await sleep(10);
+        // Error evidence settles as error.
+        rt.onAgentStart(ctx());
+        rt.onAgentEnd('error');
+        rt.onAgentSettled(ctx(), false);
+        // Aborted evidence settles as aborted even without the flag.
+        rt.onAgentStart(ctx());
+        rt.onAgentEnd('aborted');
+        rt.onAgentSettled(ctx(), false);
+        // No evidence stays explicitly unknown, never a reused outcome.
+        rt.onAgentStart(ctx());
+        rt.onAgentSettled(ctx(), false);
+        expect(settledOutcomes()).toEqual([
+            RunOutcome.RUN_OUTCOME_ERROR,
+            RunOutcome.RUN_OUTCOME_ABORTED,
+            RunOutcome.RUN_OUTCOME_UNSPECIFIED,
         ]);
         rt.shutdown();
     });
@@ -310,141 +271,7 @@ describe('Runtime lifecycle mapping', () => {
     });
 });
 
-describe('Runtime server commands', () => {
-    it('answers summarize with unsupported capability and ignores cancel', async () => {
-        const ch = mockChannel();
-        const rt = new Runtime({
-            creds: CREDS,
-            generation: 1n,
-            makeChannel: wired(ch),
-        });
-        rt.start(ctx());
-        await sleep(10);
-        ch.hooks!.onMessage({
-            payload: {
-                $case: 'summarize',
-                value: Summarize.create({ requestId: 9n }),
-            },
-        } as PhiToPi);
-        ch.hooks!.onMessage({
-            payload: { $case: 'cancel', value: { requestId: 9n } },
-        } as PhiToPi);
-        const errors = ch.sends.filter(
-            (m) => payloadOf(m).$case === 'commandError',
-        );
-        expect(errors).toHaveLength(1);
-        const payload = payloadOf(errors[0]!);
-        if (payload.$case !== 'commandError') return;
-        expect(payload.value.requestId).toBe(9n);
-        expect(payload.value.code).toBe(
-            CommandErrorCode.COMMAND_ERROR_UNSUPPORTED_CAPABILITY,
-        );
-        rt.shutdown();
-    });
-
-    it('advertises the summary capability with helpers and a full surface', async () => {
-        const ch = mockChannel();
-        const rt = new Runtime({
-            creds: CREDS,
-            generation: 1n,
-            makeChannel: wired(ch),
-            helpers: fakeHelpers(),
-        });
-        rt.start(fullCtx());
-        await sleep(10);
-        const payload = payloadOf(ch.hellos[0]!);
-        if (payload.$case !== 'hello') return;
-        expect(payload.value.capabilities).toEqual([
-            CAPABILITY_LIFECYCLE,
-            CAPABILITY_SUMMARY,
-        ]);
-        rt.shutdown();
-    });
-
-    it('runs one summary to a result through the dispatch', async () => {
-        const ch = mockChannel();
-        const rt = new Runtime({
-            creds: CREDS,
-            generation: 1n,
-            makeChannel: wired(ch),
-            helpers: fakeHelpers(),
-        });
-        rt.start(fullCtx());
-        await sleep(10);
-        ch.hooks!.onMessage({
-            payload: {
-                $case: 'summarize',
-                value: Summarize.create({
-                    requestId: 1n,
-                    sessionId: 'sess',
-                    leafId: 'leaf',
-                    model: { provider: 'p', model: 'm' },
-                    deadlineMs: 5000n,
-                }),
-            },
-        } as PhiToPi);
-        await sleep(20);
-        const results = ch.sends.filter(
-            (m) => payloadOf(m).$case === 'summaryResult',
-        );
-        expect(results).toHaveLength(1);
-        const payload = payloadOf(results[0]!);
-        if (payload.$case !== 'summaryResult') return;
-        expect(payload.value.text).toBe('Summary.');
-        rt.shutdown();
-    });
-
-    it('cancels the in-flight summary on a new agent run', async () => {
-        const ch = mockChannel();
-        const helpers = fakeHelpers();
-        let release!: () => void;
-        const gate = new Promise<void>((resolve) => (release = resolve));
-        const inner = helpers.generateSummaryWithUsage;
-        const gated: SummaryHelpers = {
-            ...helpers,
-            generateSummaryWithUsage: (async (
-                ...args: Parameters<SummaryHelpers['generateSummaryWithUsage']>
-            ) => {
-                await gate;
-                return inner(...args);
-            }) as SummaryHelpers['generateSummaryWithUsage'],
-        };
-        const rt = new Runtime({
-            creds: CREDS,
-            generation: 1n,
-            makeChannel: wired(ch),
-            helpers: gated,
-        });
-        rt.start(fullCtx());
-        await sleep(10);
-        ch.hooks!.onMessage({
-            payload: {
-                $case: 'summarize',
-                value: Summarize.create({
-                    requestId: 1n,
-                    sessionId: 'sess',
-                    leafId: 'leaf',
-                    model: { provider: 'p', model: 'm' },
-                    deadlineMs: 5000n,
-                }),
-            },
-        } as PhiToPi);
-        await sleep(10);
-        rt.onAgentStart(fullCtx());
-        release();
-        await sleep(20);
-        const errors = ch.sends.filter(
-            (m) => payloadOf(m).$case === 'commandError',
-        );
-        expect(errors).toHaveLength(1);
-        const payload = payloadOf(errors[0]!);
-        if (payload.$case !== 'commandError') return;
-        expect(payload.value.code).toBe(
-            CommandErrorCode.COMMAND_ERROR_CANCELED,
-        );
-        rt.shutdown();
-    });
-
+describe('Runtime snapshots', () => {
     it('publishes snapshots on identity events', async () => {
         const ch = mockChannel();
         const rt = new Runtime({
@@ -495,8 +322,9 @@ describe('Runtime reconnect', () => {
         if (hello2.$case !== 'hello') return;
         expect(channels[1]!.hellos[0]!.runtimeGeneration).toBe(1n);
         expect(hello2.value.currentState?.journal.length).toBe(1);
+        // Reconnect during a run reports running, never a stale idle.
         expect(hello2.value.currentState?.state).toBe(
-            LogicalState.LOGICAL_STATE_IDLE,
+            LogicalState.LOGICAL_STATE_RUNNING,
         );
         rt.shutdown();
     });
@@ -574,14 +402,14 @@ describe('Runtime reconnect', () => {
     });
 
     it('maps aborted settlements from the 1.3.0 event shape', async () => {
-        const { settledAbortedForTest } = await import('./extension.js');
-        expect(
-            settledAbortedForTest({ type: 'agent_settled', aborted: true }),
-        ).toBe(true);
-        expect(settledAbortedForTest({ type: 'agent_settled' })).toBe(false);
-        expect(
-            settledAbortedForTest({ type: 'agent_settled', aborted: 1 }),
-        ).toBe(false);
-        expect(settledAbortedForTest(null)).toBe(false);
+        const { settledAborted } = await import('./extension.js');
+        expect(settledAborted({ type: 'agent_settled', aborted: true })).toBe(
+            true,
+        );
+        expect(settledAborted({ type: 'agent_settled' })).toBe(false);
+        expect(settledAborted({ type: 'agent_settled', aborted: 1 })).toBe(
+            false,
+        );
+        expect(settledAborted(null)).toBe(false);
     });
 });

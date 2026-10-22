@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"google.golang.org/grpc/metadata"
 )
@@ -96,34 +95,10 @@ func checkMetadataSize(md metadata.MD) error {
 	return nil
 }
 
-// checkSafeMessage bounds safe_message text without credentials or
-// transcripts. Callers map overlong text to a fixed protocol error.
-func checkSafeMessage(s string) error {
-	if len(s) > maxSafeMessageBytes {
-		return fmt.Errorf("pibridge: safe message exceeds %d bytes", maxSafeMessageBytes)
-	}
-	if !utf8.ValidString(s) {
-		return fmt.Errorf("pibridge: safe message is not valid UTF-8")
-	}
-	return nil
-}
-
-// checkSummaryText bounds summary output text. Callers map overlong or
-// non-UTF-8 text to a fixed protocol error.
-func checkSummaryText(s string) error {
-	if len(s) > maxSummaryTextBytes {
-		return fmt.Errorf("pibridge: summary text exceeds %d bytes", maxSummaryTextBytes)
-	}
-	if !utf8.ValidString(s) {
-		return fmt.Errorf("pibridge: summary text is not valid UTF-8")
-	}
-	return nil
-}
-
 // negotiateCapabilities intersects client-advertised names with the
 // server-supported set. Unknown names are ignored, never an error.
 func negotiateCapabilities(advised []string) map[string]bool {
-	supported := map[string]bool{CapabilityLifecycle: true, CapabilitySummary: true}
+	supported := map[string]bool{CapabilityLifecycle: true}
 	out := map[string]bool{}
 	for _, c := range advised {
 		if supported[c] {

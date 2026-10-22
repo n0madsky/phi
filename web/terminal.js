@@ -7356,14 +7356,8 @@ export class TabManager {
             this._acceptPiSessionTitle(tabInfo, control, socket);
         } else if (control.type === 'pi-bridge-state') {
             this._acceptPiBridgeState(tabInfo, control);
-            // Bridge pushes flip the Summarize control (running,
-            // capability); refresh the active row so it never lags.
-            if (tabInfo?.paneId === this.activePaneId)
-                this.renderPresets(tabInfo.coder);
         } else if (control.type === 'pi-bridge-settled') {
             this._acceptPiBridgeSettled(tabInfo, control);
-            if (tabInfo?.paneId === this.activePaneId)
-                this.renderPresets(tabInfo.coder);
         } else if (control.type === 'pty-exited') {
             tabInfo.exitCode = control.code;
             tabInfo.isDead = true;
@@ -7495,147 +7489,9 @@ export class TabManager {
         tabInfo.isAttention = true;
         tabInfo.tabEl?.classList.add('has-attention');
         this.updateDocumentTitle();
-        this.triggerAttentionNotification(tabInfo, false);
-    }
-
-    // _piSummaryButton builds the Pi preset-row summary control. While
-    // a summary runs, the same control cancels it. Disabled states name
-    // a concise reason; the API rechecks everything regardless.
-    _piSummaryButton(activeTab) {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'preset-btn pi-summary-btn';
-        const paneId = activeTab?.paneId;
-        if (paneId && this._piSummaryPending?.has(paneId)) {
-            button.textContent = 'Cancel summary';
-            button.title = 'Cancel the running summary';
-            button.addEventListener('click', (event) => {
-                event.stopPropagation();
-                this._piSummaryAbort?.get(paneId)?.abort();
-            });
-            return button;
-        }
-        button.textContent = 'Summarize';
-        const bridge = activeTab?.piBridge;
-        let reason = '';
-        if (bridge?.state !== 'managed') {
-            reason =
-                bridge?.state === 'unavailable' && bridge?.reason
-                    ? bridge.reason
-                    : 'Bridge unavailable — restart the tab to manage it';
-        } else if (!(bridge.capabilities || []).includes('pi.summary.v1')) {
-            reason = 'Summary not supported by this Pi version';
-        } else if (bridge.running === true || activeTab?.userTaskActive === true) {
-            reason = 'Agent is busy';
-        }
-        if (reason) {
-            button.disabled = true;
-            button.title = reason;
-            return button;
-        }
-        button.title = `Summarize this Pi session${bridge.model ? ` with ${bridge.model}` : ''}`;
-        button.addEventListener('click', (event) => {
-            event.stopPropagation();
-            if (button.disabled) return;
-            this._requestPiSummary(activeTab);
-        });
-        return button;
-    }
-
-    // _requestPiSummary confirms the paid call, then posts it. The
-    // consent names the provider model and warns about cost, like the
-    // Reset Chat confirm. Abort cancels the fetch; the server cancels
-    // the bridge command when the request context ends.
-    _requestPiSummary(activeTab) {
-        const paneId = activeTab?.paneId;
-        if (!paneId) return;
-        const model = activeTab?.piBridge?.model || 'the current model';
-        if (
-            !confirm(
-                `Summarize this Pi session with ${model}? This sends the session transcript to the provider and may incur cost. Continue?`,
-            )
-        )
-            return;
-        if (!this._piSummaryPending) this._piSummaryPending = new Set();
-        if (!this._piSummaryAbort) this._piSummaryAbort = new Map();
-        const controller = new AbortController();
-        this._piSummaryPending.add(paneId);
-        this._piSummaryAbort.set(paneId, controller);
-        this.renderPresets('pi');
-        fetch(`/api/terminals/${encodeURIComponent(paneId)}/pi/summary`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ confirm: true }),
-            signal: controller.signal,
-        })
-            .then(async (response) => {
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok)
-                    throw new Error(
-                        data.message || `Summary failed (${response.status})`,
-                    );
-                return data;
-            })
-            .then((data) => {
-                this._onPiSummaryResult(paneId, data);
-            })
-            .catch((error) => {
-                if (error?.name === 'AbortError') return;
-                if (this.tabs.has(paneId))
-                    this._piSummaryError(error);
-            })
-            .finally(() => {
-                this._piSummaryPending.delete(paneId);
-                this._piSummaryAbort.delete(paneId);
-                if (this.getActiveTab()?.paneId === paneId)
-                    this.renderPresets('pi');
-            });
-    }
-
-    // _onPiSummaryResult shows the summary in the existing Markdown
-    // modal as restricted content. An inactive tab gets a toast with a
-    // View action instead of a modal ambush.
-    _onPiSummaryResult(paneId, data) {
-        const manager = this.app?.markdownManager;
-        if (!manager || typeof data?.text !== 'string') return;
-        const tabInfo = this.tabs.get(paneId);
-        const title = `Summary — ${tabInfo?.title || paneId}`;
-        if (paneId === this.activePaneId && !document.hidden) {
-            manager.openRawMarkdown(title, data.text, { restricted: true });
-            return;
-        }
-        if (!this._piLastSummary) this._piLastSummary = new Map();
-        this._piLastSummary.set(paneId, { title, text: data.text });
-        if (this.app && typeof this.app.showToast === 'function') {
-            this.app.showToast(`Summary ready for "${tabInfo?.title || paneId}".`, {
-                title: 'Pi Summary',
-                type: 'info',
-                duration: 8000,
-                action: {
-                    text: 'View summary',
-                    callback: () => {
-                        const last = this._piLastSummary?.get(paneId);
-                        if (last)
-                            manager.openRawMarkdown(last.title, last.text, {
-                                restricted: true,
-                            });
-                    },
-                },
-            });
-        }
-    }
-
-    // _piSummaryError reports a failed summary once, without retries.
-    _piSummaryError(error) {
-        const message = error?.message || 'Summary failed';
-        if (this.app && typeof this.app.showToast === 'function') {
-            this.app.showToast(`Summary failed: ${message}`, {
-                type: 'error',
-                title: 'Pi Summary',
-            });
-        } else {
-            console.error('[Pi Summary]', message);
-        }
+        // Ready-at-prompt, never a success claim: the outcome may be an
+        // error or explicitly unknown.
+        this.triggerAttentionNotification(tabInfo, true);
     }
 
     // handleServerShutdown is invoked when the WS control stream receives
@@ -9186,9 +9042,6 @@ export class TabManager {
                 this.sendStagedInput();
             });
             this.presetsContainer.appendChild(chip);
-            this.presetsContainer.appendChild(
-                this._piSummaryButton(activeTab),
-            );
         }
 
         // 3. Render QuickCmds trigger button

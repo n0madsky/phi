@@ -6,11 +6,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { ServiceError } from '@grpc/grpc-js';
-import type {
-    ContextUsage,
-    ExtensionContext,
-    SessionEntry,
-} from '@earendil-works/pi-coding-agent';
+import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 import {
     AgentSettled,
     AgentStarted,
@@ -22,23 +18,17 @@ import {
     StateSnapshot,
 } from './gen/bridge.js';
 import { BridgeChannel, type ChannelCreds } from './channel.js';
-import { CommandTracker } from './commands.js';
 import { PROTOCOL_VERSION } from './protocol.js';
 import { CAPABILITY_LIFECYCLE } from './protocol.js';
-import { CAPABILITY_SUMMARY } from './protocol.js';
 import { MAX_JOURNAL_RECORDS } from './protocol.js';
-import {
-    SummaryAdapter,
-    type SummaryHelpers,
-    hasSummarySurface,
-} from './summary.js';
+import { RECONNECT_BASE_MS } from './protocol.js';
+import { RECONNECT_MAX_MS } from './protocol.js';
+import { RECONNECT_STABLE_MS } from './protocol.js';
 
 /** Structural Pi session view; satisfied by both pinned host versions. */
 export interface PiSessionView {
     getSessionId(): string;
     getLeafId(): string | null;
-    /** Present on hosts that expose the branch for summaries. */
-    getBranch?(): SessionEntry[];
 }
 
 /** The live host model object, for provider routing. Never copied. */
@@ -48,17 +38,6 @@ export type PiModelView = NonNullable<ExtensionContext['model']>;
 export interface PiContextView {
     readonly sessionManager: PiSessionView;
     readonly model?: PiModelView | undefined;
-    /** Present on hosts that expose the model registry for summaries. */
-    readonly modelRegistry?: ExtensionContext['modelRegistry'] | undefined;
-    readonly thinkingLevel?:
-        | NonNullable<ExtensionContext['thinkingLevel']>
-        | undefined;
-    /** Present on hosts that expose idle state for summaries. */
-    isIdle?(): boolean;
-    /** Present on hosts that expose queue state for summaries. */
-    hasPendingMessages?(): boolean;
-    /** Present on hosts that expose usage for summaries. */
-    getContextUsage?(): ContextUsage | undefined;
 }
 
 export interface RuntimeOptions {
@@ -71,10 +50,6 @@ export interface RuntimeOptions {
         creds: ChannelCreds,
         hooks: ChannelHooks,
     ) => RuntimeChannel;
-    /** Host summary helpers, injected by the entry shim. Null disables summaries. */
-    readonly helpers?: SummaryHelpers | null;
-    /** Shared command tracker; the mark survives runtime replacement. */
-    readonly tracker?: CommandTracker;
 }
 
 export interface ChannelHooks {
@@ -116,36 +91,17 @@ export class Runtime {
     private sessionId = '';
     private leafId = '';
     private model: PiModelView | undefined;
-    private lastView: PiContextView | null = null;
-    private compacting = false;
-    private summaryAvailable = false;
-    private readonly tracker: CommandTracker;
-    private readonly summaries: SummaryAdapter;
+    /** Final assistant stop reason of the current run, if observed. */
+    private lastStopReason: string | null = null;
+    /** When the current stream was accepted; null while connecting. */
+    private connectedAt: number | null = null;
     private shutdownRequested = false;
     private backoffMs: number;
     private retryTimer: ReturnType<typeof setTimeout> | null = null;
     private starting = false;
 
     constructor(private readonly opts: RuntimeOptions) {
-        this.backoffMs = opts.backoffBaseMs ?? 250;
-        this.tracker = opts.tracker ?? new CommandTracker();
-        this.summaries = new SummaryAdapter(
-            {
-                getView: () => this.lastView,
-                isCompacting: () => this.compacting,
-                getRevision: () => this.revision,
-                send: (payload) =>
-                    this.send({
-                        paneId: this.opts.creds.pane,
-                        processId: this.opts.creds.process,
-                        runtimeGeneration: this.opts.generation,
-                        payload,
-                    }),
-                logError: (message, error) =>
-                    console.error(`[pi-phi] ${message}`, error),
-            },
-            this.tracker,
-        );
+        this.backoffMs = opts.backoffBaseMs ?? RECONNECT_BASE_MS;
     }
 
     /** Begin connecting; never throws, never blocks Pi startup. */
@@ -156,10 +112,9 @@ export class Runtime {
         void this.attempt();
     }
 
-    /** A replacement session invalidates in-flight summaries. */
+    /** A replacement session refreshes identities and the snapshot. */
     onSessionStart(ctx: PiContextView): void {
         if (this.shutdownRequested) return;
-        this.summaries.cancelActive();
         this.noteView(ctx);
         this.sendSnapshot(
             this.running
@@ -171,11 +126,12 @@ export class Runtime {
     /** Map one agent_start edge. Extra starts continue the current run. */
     onAgentStart(ctx: PiContextView): void {
         if (this.shutdownRequested) return;
-        this.summaries.cancelActive();
         this.noteView(ctx);
         if (!this.running) {
             this.running = true;
             this.runId += 1n;
+            // A new logical run drops the previous run's evidence.
+            this.lastStopReason = null;
         }
         const sequence = this.nextSeq();
         this.appendJournal({
@@ -200,9 +156,19 @@ export class Runtime {
     }
 
     /**
+     * Record the final assistant stop reason of the current attempt.
+     * Retries overwrite; the last evidence before settlement wins.
+     */
+    onAgentEnd(stopReason: string | null): void {
+        if (this.shutdownRequested || !this.running) return;
+        this.lastStopReason = stopReason;
+    }
+
+    /**
      * Map one agent_settled edge. A settlement with no observed run is
      * ignored: unobserved work must not ring the bell. The outcome comes
-     * from this event only; an old outcome is never reused.
+     * from this event only; an old outcome is never reused. Without
+     * abort evidence the outcome stays explicitly unknown.
      */
     onAgentSettled(ctx: PiContextView, aborted: boolean): void {
         if (this.shutdownRequested || !this.running) return;
@@ -210,7 +176,7 @@ export class Runtime {
         const sequence = this.nextSeq();
         const outcome = aborted
             ? RunOutcome.RUN_OUTCOME_ABORTED
-            : RunOutcome.RUN_OUTCOME_COMPLETED;
+            : this.settleOutcome();
         this.appendJournal({
             sequence,
             runId: this.runId,
@@ -234,10 +200,27 @@ export class Runtime {
         this.sendSnapshot(LogicalState.LOGICAL_STATE_IDLE);
     }
 
-    /** A model change invalidates in-flight summaries and the snapshot. */
+    /**
+     * Classify a non-aborted settlement from the final assistant stop
+     * reason. Anything but a clean stop stays explicitly unknown or
+     * error; success is never assumed.
+     */
+    private settleOutcome(): RunOutcome {
+        switch (this.lastStopReason) {
+            case 'stop':
+                return RunOutcome.RUN_OUTCOME_COMPLETED;
+            case 'error':
+                return RunOutcome.RUN_OUTCOME_ERROR;
+            case 'aborted':
+                return RunOutcome.RUN_OUTCOME_ABORTED;
+            default:
+                return RunOutcome.RUN_OUTCOME_UNSPECIFIED;
+        }
+    }
+
+    /** A model change refreshes identities and the snapshot. */
     onModelSelect(ctx: PiContextView): void {
         if (this.shutdownRequested) return;
-        this.summaries.cancelActive();
         this.noteView(ctx);
         this.sendSnapshot(
             this.running
@@ -246,10 +229,9 @@ export class Runtime {
         );
     }
 
-    /** Tree navigation invalidates in-flight summaries and the snapshot. */
+    /** Tree navigation refreshes identities and the snapshot. */
     onSessionTree(ctx: PiContextView): void {
         if (this.shutdownRequested) return;
-        this.summaries.cancelActive();
         this.noteView(ctx);
         this.sendSnapshot(
             this.running
@@ -258,18 +240,15 @@ export class Runtime {
         );
     }
 
-    /** Compaction starts: no summary may run against a moving session. */
+    /** Compaction starts: refresh identities; the end publishes. */
     onCompactStart(ctx: PiContextView): void {
         if (this.shutdownRequested) return;
-        this.compacting = true;
-        this.summaries.cancelActive();
         this.noteView(ctx);
     }
 
     /** Compaction ends: publish the post-compaction snapshot. */
     onCompactEnd(ctx: PiContextView): void {
         if (this.shutdownRequested) return;
-        this.compacting = false;
         this.noteView(ctx);
         this.sendSnapshot(
             this.running
@@ -286,7 +265,6 @@ export class Runtime {
             clearTimeout(this.retryTimer);
             this.retryTimer = null;
         }
-        this.tracker.resetRuntime();
         this.channel?.close();
         this.channel = null;
         this.starting = false;
@@ -300,16 +278,8 @@ export class Runtime {
         return this.seq;
     }
 
-    /**
-     * Cache the latest live view and refresh event-time identities.
-     * The summary capability is fixed at the first view: it needs
-     * injected helpers plus a host surface that exposes summaries.
-     */
+    /** Refresh event-time identities from the live view. */
     private noteView(ctx: PiContextView): void {
-        this.lastView = ctx;
-        if (this.opts.helpers != null && hasSummarySurface(ctx)) {
-            this.summaryAvailable = true;
-        }
         this.refreshIdentities(ctx);
     }
 
@@ -360,7 +330,6 @@ export class Runtime {
             })),
             journalGap: this.journalGap,
             stateRevision: this.revision,
-            outstandingSummaries: [],
         });
     }
 
@@ -373,15 +342,13 @@ export class Runtime {
                 $case: 'hello',
                 value: Hello.create({
                     protocolVersion: PROTOCOL_VERSION,
-                    packageVersion: '0.1.0',
-                    hostVersion: '',
                     sessionId: this.sessionId,
                     runtimeId: this.runtimeId,
-                    capabilities: this.summaryAvailable
-                        ? [CAPABILITY_LIFECYCLE, CAPABILITY_SUMMARY]
-                        : [CAPABILITY_LIFECYCLE],
+                    capabilities: [CAPABILITY_LIFECYCLE],
                     currentState: this.snapshot(
-                        LogicalState.LOGICAL_STATE_IDLE,
+                        this.running
+                            ? LogicalState.LOGICAL_STATE_RUNNING
+                            : LogicalState.LOGICAL_STATE_IDLE,
                     ),
                     journalFirstSequence:
                         this.journal.length > 0
@@ -429,40 +396,33 @@ export class Runtime {
         try {
             await channel.connect(this.hello());
         } catch {
-            this.channel = null;
+            channel.close();
+            if (this.channel === channel) this.channel = null;
             if (!this.shutdownRequested) this.scheduleRetry();
             return;
         } finally {
             this.starting = false;
         }
-        // Accepted resets the backoff for the next transport failure.
-        this.backoffMs = this.opts.backoffBaseMs ?? 250;
+        // Acceptance starts the stability window; only a stable
+        // connection resets the backoff on its later failure.
+        this.connectedAt = Date.now();
     }
 
-    private onServerMessage(msg: import('./gen/bridge.js').PhiToPi): void {
-        const payload = msg.payload;
-        if (payload?.$case === 'summarize') {
-            // Never throws: the adapter ends every command with a frame.
-            void this.summaries.handleSummarize(
-                payload.value,
-                this.opts.helpers ?? null,
-            );
-            return;
-        }
-        if (payload?.$case === 'cancel') {
-            this.summaries.handleCancel(payload.value.requestId);
-            return;
-        }
-        // Protocol errors are informational. Terminal failures arrive as
-        // the stream status, not messages.
+    private onServerMessage(_msg: import('./gen/bridge.js').PhiToPi): void {
+        // The lifecycle runtime issues no commands, so Phi sends only
+        // Accepted and ProtocolError. Terminal failures arrive as the
+        // stream status, not messages. Everything here is informational.
     }
 
     private onStreamEnd(status: ServiceError | null): void {
         this.channel?.close();
         this.channel = null;
-        // A disconnect fails outstanding requests; the reconnect starts
-        // with no survivors, so no paid work is replayed.
-        this.tracker.resetRuntime();
+        if (this.connectedAt !== null) {
+            if (Date.now() - this.connectedAt >= RECONNECT_STABLE_MS) {
+                this.backoffMs = this.opts.backoffBaseMs ?? RECONNECT_BASE_MS;
+            }
+            this.connectedAt = null;
+        }
         if (this.shutdownRequested) return;
         if (status && TERMINAL_STATUS_CODES.has(status.code)) return;
         this.scheduleRetry();
@@ -470,8 +430,10 @@ export class Runtime {
 
     private scheduleRetry(): void {
         if (this.shutdownRequested || this.retryTimer || this.channel) return;
-        const max = this.opts.backoffMaxMs ?? 10_000;
-        const delay = Math.min(this.backoffMs, max);
+        const max = this.opts.backoffMaxMs ?? RECONNECT_MAX_MS;
+        const ceiling = Math.min(this.backoffMs, max);
+        // Equal jitter: at least half the ceiling, decorrelated.
+        const delay = ceiling / 2 + Math.random() * (ceiling / 2);
         this.backoffMs = Math.min(this.backoffMs * 2, max);
         this.retryTimer = setTimeout(() => {
             this.retryTimer = null;

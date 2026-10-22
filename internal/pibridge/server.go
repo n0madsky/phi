@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -18,18 +17,16 @@ import (
 )
 
 // Server owns one local IPC gRPC service for provisioned Pi processes.
-// It holds process leases, authenticates streams, enforces bounds, retains
-// bounded lifecycle state, and correlates typed summary commands.
+// It holds process leases, authenticates streams, enforces bounds, and
+// retains bounded lifecycle state.
 type Server struct {
 	pibridgepb.UnimplementedIntegrationServer
 
 	reg *registry
 
-	mu              sync.Mutex
-	activeSummaries int
-	grpcServer      *grpc.Server
-	onSettled       func(paneID, processID string, runID uint64, outcome pibridgepb.RunOutcome)
-	onState         func(paneID, processID string, running bool, model string, caps []string)
+	grpcServer *grpc.Server
+	onSettled  func(paneID, processID string, runID uint64, outcome pibridgepb.RunOutcome)
+	onState    func(paneID, processID string, running bool, model string, caps []string)
 }
 
 // NewServer creates a bridge server with bounded gRPC limits and no TCP
@@ -126,24 +123,13 @@ func (s *Server) Complete(processID string) {
 	s.reg.complete(processID)
 }
 
-// Revoke removes a lease, fails its pending commands, and closes its peer.
+// Revoke removes a lease and closes its peer.
 func (s *Server) Revoke(processID string) {
-	cleared := s.reg.revokeWithCount(processID)
-	if cleared > 0 {
-		s.mu.Lock()
-		s.activeSummaries -= cleared
-		if s.activeSummaries < 0 {
-			s.activeSummaries = 0
-		}
-		s.mu.Unlock()
-	}
+	s.reg.revoke(processID)
 }
 
-// Stats reports active streams and summary admissions for tests.
-func (s *Server) Stats() (activeStreams, activeSummaries, leases int) {
-	s.mu.Lock()
-	activeSummaries = s.activeSummaries
-	s.mu.Unlock()
+// Stats reports active streams and leases for tests.
+func (s *Server) Stats() (activeStreams, leases int) {
 	s.reg.mu.Lock()
 	defer s.reg.mu.Unlock()
 	leases = len(s.reg.byProcess)
@@ -154,7 +140,7 @@ func (s *Server) Stats() (activeStreams, activeSummaries, leases int) {
 		}
 		l.mu.Unlock()
 	}
-	return activeStreams, activeSummaries, leases
+	return activeStreams, leases
 }
 
 // StateView is the nonsecret lease inspection surface for the host and
@@ -169,8 +155,6 @@ type StateView struct {
 	JournalFirst uint64
 	JournalLast  uint64
 	JournalGap   bool
-	StaleDrops   int
-	Pending      int
 	Generation   uint64
 	RuntimeID    string
 	Caps         []string
@@ -184,8 +168,6 @@ type StateView struct {
 func (s *Server) paneStateLocked(l *lease) StateView {
 	view := StateView{
 		HasPeer:    l.peer != nil,
-		StaleDrops: l.staleDrops,
-		Pending:    len(l.pending),
 		Generation: l.maxGen,
 		RuntimeID:  l.runtimeID,
 		SessionID:  l.sessionID,
@@ -226,9 +208,9 @@ func (s *Server) InspectForTest(processID string) (StateView, bool) {
 	return s.PaneState(processID)
 }
 
-// FloodForTest bypasses command admission and enqueues count dummy Cancel
-// messages to exercise the slow-peer bound. It returns how many enqueued
-// before overflow. Test-only; production code uses Cancel.
+// FloodForTest enqueues count dummy ProtocolError messages to exercise
+// the slow-peer bound. It returns how many enqueued before overflow.
+// Test-only; production sends Accepted once plus rare ProtocolErrors.
 func (s *Server) FloodForTest(processID string, count int) int {
 	l, ok := s.reg.lookupByProcess(processID)
 	if !ok {
@@ -252,8 +234,8 @@ func (s *Server) FloodForTest(processID string, count int) int {
 			PaneId:            pane,
 			ProcessId:         proc,
 			RuntimeGeneration: gen,
-			Payload: &pibridgepb.PhiToPi_Cancel{
-				Cancel: &pibridgepb.Cancel{RequestId: uint64(1000000 + i), Reason: pibridgepb.CancelReason_CANCEL_REASON_USER},
+			Payload: &pibridgepb.PhiToPi_ProtocolError{
+				ProtocolError: &pibridgepb.ProtocolError{Code: pibridgepb.ProtocolErrorCode_PROTOCOL_ERROR_BAD_PAYLOAD, SafeMessage: "flood"},
 			},
 		}
 		if !p.send(msg) {
@@ -262,302 +244,6 @@ func (s *Server) FloodForTest(processID string, count int) int {
 		sent++
 	}
 	return sent
-}
-
-// OutcomeKind identifies the terminal result of an admitted summary.
-type OutcomeKind int
-
-const (
-	OutcomeSummary OutcomeKind = iota + 1
-	OutcomeError
-	OutcomeCancelAck
-	OutcomeRevoked
-	OutcomeTimeout
-)
-
-// Outcome is the public terminal result of one summary command.
-type Outcome struct {
-	Kind      OutcomeKind
-	RequestID uint64
-	Text      string
-	Code      pibridgepb.CommandErrorCode
-	SafeMsg   string
-	Terminate pibridgepb.SummaryTermination
-	SessionID string
-	LeafID    string
-	Selected  *pibridgepb.ModelSnapshot
-	Reported  *pibridgepb.ModelSnapshot
-	Usage     *pibridgepb.Usage
-}
-
-// Summarize admits one synthetic summary command and sends it to the live
-// peer. It checks liveness, capability, idle state, snapshot identity, and
-// concurrency before provider work. It returns the allocated request ID;
-// use Await for the terminal outcome.
-func (s *Server) Summarize(processID, sessionID, leafID string, model *pibridgepb.ModelSnapshot, stateRevision uint64, deadline time.Duration) (uint64, error) {
-	if deadline <= 0 {
-		deadline = summaryDeadline
-	}
-	l, ok := s.reg.lookupByProcess(processID)
-	if !ok {
-		return 0, status.Error(codes.Unavailable, "unknown process")
-	}
-	l.mu.Lock()
-	if l.state != leaseLive {
-		l.mu.Unlock()
-		return 0, status.Error(codes.FailedPrecondition, "lease not live")
-	}
-	p := l.peer
-	last := l.lastState
-	if p == nil {
-		l.mu.Unlock()
-		return 0, status.Error(codes.Unavailable, "no active stream")
-	}
-	if !p.hasCapability(CapabilitySummary) {
-		l.mu.Unlock()
-		return 0, status.Error(codes.FailedPrecondition, "summary capability not negotiated")
-	}
-	if last == nil {
-		l.mu.Unlock()
-		return 0, status.Error(codes.FailedPrecondition, "no lifecycle baseline")
-	}
-	if last.State == pibridgepb.LogicalState_LOGICAL_STATE_RUNNING {
-		l.mu.Unlock()
-		return 0, status.Error(codes.FailedPrecondition, "agent busy")
-	}
-	if last.SessionId != "" && sessionID != last.SessionId {
-		l.mu.Unlock()
-		return 0, status.Error(codes.FailedPrecondition, "stale session")
-	}
-	if last.LeafId != "" && leafID != "" && leafID != last.LeafId {
-		l.mu.Unlock()
-		return 0, status.Error(codes.FailedPrecondition, "stale leaf")
-	}
-	if stateRevision != last.StateRevision {
-		l.mu.Unlock()
-		return 0, status.Error(codes.FailedPrecondition, "stale revision")
-	}
-	if len(l.pending) >= maxSummaryPerPane {
-		l.mu.Unlock()
-		return 0, status.Error(codes.ResourceExhausted, "pane summary busy")
-	}
-	peerGen := p.generation
-	peerPane := l.paneID
-	peerProc := l.processID
-	l.mu.Unlock()
-
-	s.mu.Lock()
-	if s.activeSummaries >= maxSummaryServer {
-		s.mu.Unlock()
-		return 0, status.Error(codes.ResourceExhausted, "server summary busy")
-	}
-	s.activeSummaries++
-	s.mu.Unlock()
-
-	l.mu.Lock()
-	// Re-check under lease lock after global admission: revoke or replace
-	// may have raced the first check.
-	if l.state != leaseLive || l.peer == nil || l.peer.generation != peerGen {
-		l.mu.Unlock()
-		s.mu.Lock()
-		s.activeSummaries--
-		s.mu.Unlock()
-		return 0, status.Error(codes.Unavailable, "stream replaced")
-	}
-	if len(l.pending) >= maxSummaryPerPane {
-		l.mu.Unlock()
-		s.mu.Lock()
-		s.activeSummaries--
-		s.mu.Unlock()
-		return 0, status.Error(codes.ResourceExhausted, "pane summary busy")
-	}
-	if l.nextReqID == 0 {
-		// Wrapped: stop and re-establish identity before reuse.
-		l.mu.Unlock()
-		s.mu.Lock()
-		s.activeSummaries--
-		s.mu.Unlock()
-		return 0, status.Error(codes.FailedPrecondition, "request id wrap")
-	}
-	id := l.nextReqID
-	l.nextReqID++
-	ch := make(chan *commandOutcome, 1)
-	l.pending[id] = &pendingReq{ch: ch, generation: peerGen}
-	p = l.peer
-	l.mu.Unlock()
-
-	deadlineMs := uint64(deadline.Milliseconds())
-	if deadlineMs == 0 {
-		deadlineMs = 1
-	}
-	msg := &pibridgepb.PhiToPi{
-		PaneId:            peerPane,
-		ProcessId:         peerProc,
-		RuntimeGeneration: peerGen,
-		Payload: &pibridgepb.PhiToPi_Summarize{
-			Summarize: &pibridgepb.Summarize{
-				RequestId:     id,
-				SessionId:     sessionID,
-				LeafId:        leafID,
-				Model:         model,
-				DeadlineMs:    deadlineMs,
-				StateRevision: stateRevision,
-			},
-		},
-	}
-	if !p.send(msg) {
-		l.mu.Lock()
-		delete(l.pending, id)
-		l.mu.Unlock()
-		s.mu.Lock()
-		s.activeSummaries--
-		s.mu.Unlock()
-		if err := p.closeErr(); err != nil {
-			return 0, err
-		}
-		return 0, status.Error(codes.Unavailable, "peer closed")
-	}
-	// Deadline enforcement sends Cancel but retains the admission slot
-	// until terminal evidence or process exit.
-	go func() {
-		timer := time.NewTimer(deadline)
-		defer timer.Stop()
-		select {
-		case <-timer.C:
-			_ = s.Cancel(processID, id, pibridgepb.CancelReason_CANCEL_REASON_DEADLINE)
-		case <-p.done:
-		}
-	}()
-	return id, nil
-}
-
-// Cancel requests cancellation of one admitted command. It is idempotent:
-// unknown or completed IDs succeed without starting work or affecting
-// another request. It never frees the admission slot; terminal evidence does.
-func (s *Server) Cancel(processID string, requestID uint64, reason pibridgepb.CancelReason) error {
-	if requestID == 0 {
-		return status.Error(codes.InvalidArgument, "request id required")
-	}
-	l, ok := s.reg.lookupByProcess(processID)
-	if !ok {
-		return nil
-	}
-	l.mu.Lock()
-	pend, exists := l.pending[requestID]
-	p := l.peer
-	if !exists || p == nil {
-		l.mu.Unlock()
-		return nil
-	}
-	if pend.generation != p.generation {
-		// Old-runtime request: new runtime cannot cancel it. Retain the
-		// slot until snapshot termination or process exit.
-		l.mu.Unlock()
-		return nil
-	}
-	if reason == pibridgepb.CancelReason_CANCEL_REASON_UNSPECIFIED {
-		l.mu.Unlock()
-		return status.Error(codes.InvalidArgument, "cancel reason required")
-	}
-	msg := &pibridgepb.PhiToPi{
-		PaneId:            l.paneID,
-		ProcessId:         l.processID,
-		RuntimeGeneration: p.generation,
-		Payload: &pibridgepb.PhiToPi_Cancel{
-			Cancel: &pibridgepb.Cancel{RequestId: requestID, Reason: reason},
-		},
-	}
-	l.mu.Unlock()
-	_ = p.send(msg)
-	return nil
-}
-
-// Await waits for the terminal outcome of one admitted request. A timeout
-// reports OutcomeTimeout without freeing the admission slot; revocation
-// reports OutcomeRevoked and frees it. An ID that already completed
-// reports its retained outcome; only evicted or never-admitted IDs read
-// as revoked.
-func (s *Server) Await(processID string, requestID uint64, timeout time.Duration) (*Outcome, error) {
-	l, ok := s.reg.lookupByProcess(processID)
-	if !ok {
-		return &Outcome{Kind: OutcomeRevoked, RequestID: requestID}, nil
-	}
-	l.mu.Lock()
-	pend, exists := l.pending[requestID]
-	recent := l.recent[requestID]
-	l.mu.Unlock()
-	if !exists {
-		if recent != nil {
-			return toPublicOutcome(recent), nil
-		}
-		// Evicted, stale, or never admitted. Callers treat unknown IDs
-		// as revoked to avoid blocking on a freed slot.
-		return &Outcome{Kind: OutcomeRevoked, RequestID: requestID}, nil
-	}
-	if timeout <= 0 {
-		timeout = summaryDeadline
-	}
-	select {
-	case out := <-pend.ch:
-		return toPublicOutcome(out), nil
-	case <-time.After(timeout):
-		return &Outcome{Kind: OutcomeTimeout, RequestID: requestID}, nil
-	}
-}
-
-func toPublicOutcome(out *commandOutcome) *Outcome {
-	switch out.kind {
-	case outcomeSummary:
-		return &Outcome{Kind: OutcomeSummary, RequestID: out.request, Text: out.text, SessionID: out.session, LeafID: out.leaf, Selected: out.selected, Reported: out.reported, Usage: out.usage}
-	case outcomeError:
-		return &Outcome{Kind: OutcomeError, RequestID: out.request, Code: out.code, SafeMsg: out.safeMsg}
-	case outcomeCancelAck:
-		return &Outcome{Kind: OutcomeCancelAck, RequestID: out.request, Terminate: out.terminate}
-	default:
-		return &Outcome{Kind: OutcomeRevoked, RequestID: out.request}
-	}
-}
-
-// deliverOutcome removes one pending request and releases its server slot.
-// It returns false when the ID is unknown or already completed (stale).
-// Completed outcomes are retained bounded so a late Await still reports
-// them; only evicted or never-admitted IDs read as revoked.
-func (s *Server) deliverOutcome(l *lease, id uint64, out *commandOutcome) bool {
-	l.mu.Lock()
-	pend, ok := l.pending[id]
-	if !ok {
-		l.staleDrops++
-		l.mu.Unlock()
-		return false
-	}
-	delete(l.pending, id)
-	l.recent[id] = out
-	l.recentOrder = append(l.recentOrder, id)
-	for len(l.recentOrder) > maxRecentOutcomes {
-		evict := l.recentOrder[0]
-		l.recentOrder = l.recentOrder[1:]
-		delete(l.recent, evict)
-	}
-	l.mu.Unlock()
-	s.mu.Lock()
-	s.activeSummaries--
-	if s.activeSummaries < 0 {
-		s.activeSummaries = 0
-	}
-	s.mu.Unlock()
-	select {
-	case pend.ch <- out:
-	default:
-	}
-	return true
-}
-
-// noteStaleResult counts one stale or duplicate result without closing the
-// healthy stream.
-func noteStaleResult(l *lease) {
-	l.mu.Lock()
-	l.staleDrops++
-	l.mu.Unlock()
 }
 
 // Connect implements the generated Integration service: one long-lived
@@ -645,6 +331,12 @@ func (s *Server) Connect(stream pibridgepb.Integration_ConnectServer) error {
 				return status.Error(codes.InvalidArgument, err.Error())
 			}
 			l.lastState = hello.GetCurrentState()
+			// Same-generation reconnect: merge edges the runtime
+			// recorded while offline. Duplicates are ignored; only
+			// advancing sequences land.
+			for _, r := range hello.GetCurrentState().GetJournal() {
+				l.jrn.append(r.GetEventSequence(), r.GetRunId(), r.GetSettled(), r.GetOutcome())
+			}
 		}
 	} else {
 		l.maxGen = gen
@@ -799,113 +491,8 @@ func (s *Server) handleMessage(l *lease, p *peer, msg *pibridgepb.PiToPhi) error
 		}
 		l.mu.Lock()
 		l.lastState = snap
-		// Snapshot termination evidence can release old or unresolved
-		// slots without publishing a result.
-		var toRelease []uint64
-		for _, o := range snap.GetOutstandingSummaries() {
-			if o.GetRequestId() == 0 {
-				continue
-			}
-			if o.GetTermination() != pibridgepb.SummaryTermination_SUMMARY_TERMINATION_ENDED &&
-				o.GetTermination() != pibridgepb.SummaryTermination_SUMMARY_TERMINATION_UNKNOWN {
-				continue
-			}
-			if _, ok := l.pending[o.GetRequestId()]; ok {
-				toRelease = append(toRelease, o.GetRequestId())
-			}
-		}
-		released := make([]*pendingReq, 0, len(toRelease))
-		releaseIDs := make([]uint64, 0, len(toRelease))
-		for _, id := range toRelease {
-			if pend, ok := l.pending[id]; ok {
-				delete(l.pending, id)
-				released = append(released, pend)
-				releaseIDs = append(releaseIDs, id)
-			}
-		}
 		l.mu.Unlock()
-		if len(released) > 0 {
-			s.mu.Lock()
-			s.activeSummaries -= len(released)
-			if s.activeSummaries < 0 {
-				s.activeSummaries = 0
-			}
-			s.mu.Unlock()
-			for i, pend := range released {
-				select {
-				case pend.ch <- &commandOutcome{kind: outcomeRevoked, request: releaseIDs[i]}:
-				default:
-				}
-			}
-		}
 		s.fireState(l.paneID, l.processID, snap, nil)
-		return nil
-	case msg.GetSummaryResult() != nil:
-		res := msg.GetSummaryResult()
-		if res.GetRequestId() == 0 {
-			return status.Error(codes.InvalidArgument, "request id required")
-		}
-		if err := checkSummaryText(res.GetText()); err != nil {
-			return status.Error(codes.InvalidArgument, "summary text too large")
-		}
-		l.mu.Lock()
-		pend, ok := l.pending[res.GetRequestId()]
-		genOK := ok && pend.generation == p.generation
-		l.mu.Unlock()
-		if !ok || !genOK {
-			noteStaleResult(l)
-			return nil
-		}
-		s.deliverOutcome(l, res.GetRequestId(), &commandOutcome{
-			kind: outcomeSummary, request: res.GetRequestId(), text: res.GetText(),
-			session: res.GetSessionId(), leaf: res.GetLeafId(),
-			selected: res.GetSelectedModel(), reported: res.GetReportedModel(), usage: res.GetUsage(),
-		})
-		return nil
-	case msg.GetCommandError() != nil:
-		res := msg.GetCommandError()
-		if res.GetRequestId() == 0 {
-			return status.Error(codes.InvalidArgument, "request id required")
-		}
-		if res.GetCode() == pibridgepb.CommandErrorCode_COMMAND_ERROR_UNSPECIFIED {
-			return status.Error(codes.InvalidArgument, "error code required")
-		}
-		if err := checkSafeMessage(res.GetSafeMessage()); err != nil {
-			return status.Error(codes.InvalidArgument, "safe message too large")
-		}
-		l.mu.Lock()
-		pend, ok := l.pending[res.GetRequestId()]
-		genOK := ok && pend.generation == p.generation
-		l.mu.Unlock()
-		if !ok || !genOK {
-			noteStaleResult(l)
-			return nil
-		}
-		s.deliverOutcome(l, res.GetRequestId(), &commandOutcome{
-			kind: outcomeError, request: res.GetRequestId(),
-			code: res.GetCode(), safeMsg: res.GetSafeMessage(),
-		})
-		return nil
-	case msg.GetCancelAcknowledged() != nil:
-		res := msg.GetCancelAcknowledged()
-		if res.GetRequestId() == 0 {
-			return status.Error(codes.InvalidArgument, "request id required")
-		}
-		if res.GetDisposition() != pibridgepb.SummaryTermination_SUMMARY_TERMINATION_ENDED &&
-			res.GetDisposition() != pibridgepb.SummaryTermination_SUMMARY_TERMINATION_UNKNOWN {
-			return status.Error(codes.InvalidArgument, "terminal disposition required")
-		}
-		l.mu.Lock()
-		pend, ok := l.pending[res.GetRequestId()]
-		genOK := ok && pend.generation == p.generation
-		l.mu.Unlock()
-		if !ok || !genOK {
-			noteStaleResult(l)
-			return nil
-		}
-		s.deliverOutcome(l, res.GetRequestId(), &commandOutcome{
-			kind: outcomeCancelAck, request: res.GetRequestId(), terminate: res.GetDisposition(),
-		})
 		return nil
 	default:
 		return status.Error(codes.InvalidArgument, "unsupported payload")
@@ -926,11 +513,6 @@ func validateSnapshot(snap *pibridgepb.StateSnapshot, sessionID string) error {
 	for _, r := range snap.GetJournal() {
 		if r.GetEventSequence() == 0 || r.GetRunId() == 0 {
 			return fmt.Errorf("journal ids required")
-		}
-	}
-	for _, o := range snap.GetOutstandingSummaries() {
-		if o.GetRequestId() == 0 {
-			return fmt.Errorf("outstanding request id required")
 		}
 	}
 	if len(snap.GetJournal()) > maxJournalRecords {

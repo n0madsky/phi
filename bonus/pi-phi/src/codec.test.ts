@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-    LogicalState,
-    PiToPhi,
-    RunOutcome,
-    SummaryResult,
-} from './gen/bridge.js';
+import { LogicalState, PiToPhi, RunOutcome } from './gen/bridge.js';
 
 describe('generated codec', () => {
     it('round-trips uint64 beyond the safe-number range', () => {
@@ -25,29 +20,6 @@ describe('generated codec', () => {
         if (back.payload?.$case === 'agentStarted') {
             expect(back.payload.value.eventSequence).toBe(overSafe);
             expect(back.payload.value.runId).toBe(big);
-        }
-    });
-    it('round-trips unicode summary text', () => {
-        const text = 'Synthetic summary ↔ünicode—done ✓\nline2\ttab';
-        const msg = PiToPhi.create({
-            paneId: 'pane',
-            processId: 'proc',
-            runtimeGeneration: 1n,
-            payload: {
-                $case: 'summaryResult',
-                value: SummaryResult.create({
-                    requestId: 7n,
-                    sessionId: 'sess',
-                    leafId: 'leaf',
-                    text,
-                    stateRevision: 3n,
-                }),
-            },
-        });
-        const back = PiToPhi.decode(PiToPhi.encode(msg).finish());
-        expect(back.payload?.$case).toBe('summaryResult');
-        if (back.payload?.$case === 'summaryResult') {
-            expect(back.payload.value.text).toBe(text);
         }
     });
     it('keeps lifecycle enums stable', () => {

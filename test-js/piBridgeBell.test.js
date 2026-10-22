@@ -71,6 +71,40 @@ describe('pi-bridge settled bell', () => {
         expect(showToast).toHaveBeenCalledTimes(1);
     });
 
+    it('rings with the ready-at-prompt message, never a success claim', () => {
+        const { manager } = bridgeManager();
+        manager.triggerAttentionNotification = vi.fn();
+        const tab = piTab();
+        manager._acceptPiBridgeSettled(tab, {
+            type: 'pi-bridge-settled',
+            pane_id: 'pane-1',
+            run: '7',
+            outcome: 'completed',
+        });
+        expect(manager.triggerAttentionNotification).toHaveBeenCalledWith(
+            tab,
+            true,
+        );
+    });
+
+    it('rings for error and unknown outcomes without claiming success', () => {
+        const { manager } = bridgeManager();
+        manager.triggerAttentionNotification = vi.fn();
+        for (const outcome of ['error', 'unknown']) {
+            const tab = piTab();
+            manager._acceptPiBridgeSettled(tab, {
+                type: 'pi-bridge-settled',
+                pane_id: 'pane-1',
+                run: '7',
+                outcome,
+            });
+            expect(manager.triggerAttentionNotification).toHaveBeenCalledWith(
+                tab,
+                true,
+            );
+        }
+    });
+
     it('never rings for aborted runs', () => {
         const { manager, showToast } = bridgeManager();
         const tab = piTab();

@@ -90,29 +90,3 @@ func TestAuthenticateToken(t *testing.T) {
 		t.Fatal("non-hex token accepted")
 	}
 }
-
-func TestRevokeWithCountFailsPending(t *testing.T) {
-	r := newRegistry()
-	l, err := r.registerPending("pane")
-	if err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	l.mu.Lock()
-	ch := make(chan *commandOutcome, 1)
-	l.pending[7] = &pendingReq{ch: ch, generation: 1}
-	l.mu.Unlock()
-	if n := r.revokeWithCount(l.processID); n != 1 {
-		t.Fatalf("cleared %d, want 1", n)
-	}
-	select {
-	case out := <-ch:
-		if out.kind != outcomeRevoked || out.request != 7 {
-			t.Fatalf("unexpected outcome: %+v", out)
-		}
-	default:
-		t.Fatal("revoked waiter not notified")
-	}
-	if n := r.revokeWithCount(l.processID); n != 0 {
-		t.Fatalf("second revoke cleared %d", n)
-	}
-}

@@ -10,28 +10,15 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"time"
-
-	"google.golang.org/grpc/status"
 
 	"github.com/hypernewbie/phi/internal/pibridge"
-	pibridgepb "github.com/hypernewbie/phi/internal/pibridge/pb"
 )
 
 type request struct {
-	Op         string `json:"op"`
-	Pane       string `json:"pane"`
-	Process    string `json:"process"`
-	Session    string `json:"session"`
-	Leaf       string `json:"leaf"`
-	Provider   string `json:"provider"`
-	Model      string `json:"model"`
-	Revision   string `json:"revision"`
-	RequestID  string `json:"requestId"`
-	Reason     int32  `json:"reason"`
-	DeadlineMs int64  `json:"deadlineMs"`
-	TimeoutMs  int64  `json:"timeoutMs"`
-	Count      int    `json:"count"`
+	Op      string `json:"op"`
+	Pane    string `json:"pane"`
+	Process string `json:"process"`
+	Count   int    `json:"count"`
 }
 
 type response struct {
@@ -40,14 +27,8 @@ type response struct {
 	Code         int      `json:"code,omitempty"`
 	Process      string   `json:"process,omitempty"`
 	Token        string   `json:"token,omitempty"`
-	RequestID    string   `json:"requestId,omitempty"`
-	Kind         string   `json:"kind,omitempty"`
-	Text         string   `json:"text,omitempty"`
-	SafeMsg      string   `json:"safeMsg,omitempty"`
-	Terminate    int32    `json:"terminate,omitempty"`
 	Sent         int      `json:"sent,omitempty"`
 	Active       int      `json:"active,omitempty"`
-	Summaries    int      `json:"summaries,omitempty"`
 	Leases       int      `json:"leases,omitempty"`
 	HasPeer      bool     `json:"hasPeer,omitempty"`
 	HasState     bool     `json:"hasState,omitempty"`
@@ -56,8 +37,6 @@ type response struct {
 	JournalFirst string   `json:"journalFirst,omitempty"`
 	JournalLast  string   `json:"journalLast,omitempty"`
 	JournalGap   bool     `json:"journalGap,omitempty"`
-	StaleDrops   int      `json:"staleDrops"`
-	Pending      int      `json:"pending"`
 	Generation   string   `json:"generation,omitempty"`
 	RuntimeID    string   `json:"runtimeId,omitempty"`
 	Caps         []string `json:"caps,omitempty"`
@@ -124,71 +103,12 @@ func run() error {
 		case "revoke":
 			srv.Revoke(req.Process)
 			_ = enc.Encode(response{OK: true})
-		case "summarize":
-			rev := uint64(0)
-			if req.Revision != "" {
-				rev, err = strconv.ParseUint(req.Revision, 10, 64)
-				if err != nil {
-					_ = enc.Encode(fail("bad revision: %v", err))
-					continue
-				}
-			}
-			deadline := time.Duration(req.DeadlineMs) * time.Millisecond
-			id, err := srv.Summarize(req.Process, req.Session, req.Leaf,
-				&pibridgepb.ModelSnapshot{Provider: req.Provider, Model: req.Model}, rev, deadline)
-			if err != nil {
-				_ = enc.Encode(response{OK: false, Error: err.Error(), Code: int(status.Code(err))})
-				continue
-			}
-			_ = enc.Encode(response{OK: true, RequestID: strconv.FormatUint(id, 10)})
-		case "cancel":
-			id, err := strconv.ParseUint(req.RequestID, 10, 64)
-			if err != nil {
-				_ = enc.Encode(fail("bad request id: %v", err))
-				continue
-			}
-			reason := pibridgepb.CancelReason(req.Reason)
-			if err := srv.Cancel(req.Process, id, reason); err != nil {
-				_ = enc.Encode(response{OK: false, Error: err.Error(), Code: int(status.Code(err))})
-				continue
-			}
-			_ = enc.Encode(response{OK: true})
-		case "await":
-			id, err := strconv.ParseUint(req.RequestID, 10, 64)
-			if err != nil {
-				_ = enc.Encode(fail("bad request id: %v", err))
-				continue
-			}
-			timeout := time.Duration(req.TimeoutMs) * time.Millisecond
-			out, err := srv.Await(req.Process, id, timeout)
-			if err != nil {
-				_ = enc.Encode(fail("%v", err))
-				continue
-			}
-			resp := response{OK: true, RequestID: strconv.FormatUint(out.RequestID, 10)}
-			switch out.Kind {
-			case pibridge.OutcomeSummary:
-				resp.Kind = "summary"
-				resp.Text = out.Text
-			case pibridge.OutcomeError:
-				resp.Kind = "error"
-				resp.Code = int(out.Code)
-				resp.SafeMsg = out.SafeMsg
-			case pibridge.OutcomeCancelAck:
-				resp.Kind = "cancelAck"
-				resp.Terminate = int32(out.Terminate)
-			case pibridge.OutcomeRevoked:
-				resp.Kind = "revoked"
-			default:
-				resp.Kind = "timeout"
-			}
-			_ = enc.Encode(resp)
 		case "flood":
 			sent := srv.FloodForTest(req.Process, req.Count)
 			_ = enc.Encode(response{OK: true, Sent: sent})
 		case "stats":
-			active, summaries, leases := srv.Stats()
-			_ = enc.Encode(response{OK: true, Active: active, Summaries: summaries, Leases: leases})
+			active, leases := srv.Stats()
+			_ = enc.Encode(response{OK: true, Active: active, Leases: leases})
 		case "inspect":
 			view, found := srv.InspectForTest(req.Process)
 			if !found {
@@ -200,8 +120,8 @@ func run() error {
 				State: int32(view.State), Revision: strconv.FormatUint(view.Revision, 10),
 				JournalFirst: strconv.FormatUint(view.JournalFirst, 10),
 				JournalLast:  strconv.FormatUint(view.JournalLast, 10),
-				JournalGap:   view.JournalGap, StaleDrops: view.StaleDrops, Pending: view.Pending,
-				Generation: strconv.FormatUint(view.Generation, 10), RuntimeID: view.RuntimeID,
+				JournalGap:   view.JournalGap,
+				Generation:   strconv.FormatUint(view.Generation, 10), RuntimeID: view.RuntimeID,
 				Caps: view.Caps, Session: view.SessionID, Leaf: view.LeafID, Model: view.Model,
 			})
 		case "shutdown":
