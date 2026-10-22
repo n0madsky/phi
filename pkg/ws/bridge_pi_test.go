@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,19 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/hypernewbie/phi/pkg/pty"
 )
+
+// drainFrames empties a client queue without blocking.
+func drainFrames(ch chan []byte) [][]byte {
+	var out [][]byte
+	for {
+		select {
+		case f := <-ch:
+			out = append(out, f)
+		default:
+			return out
+		}
+	}
+}
 
 func TestBroadcastBridgeDeliversControlFrame(t *testing.T) {
 	hub := NewHub(0)
@@ -69,6 +83,81 @@ func TestBroadcastBridgeFullClientClosesForReconnect(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the congested connection to close")
 	}
+}
+
+// A full client at attach time must not block the attach: the snapshot
+// is refused so the client reconnects and retries the attach.
+func TestBridgeAttachSnapshotFullQueueIsRefused(t *testing.T) {
+	hub := NewHub(0)
+	hub.SetBridgeAttach(func(pty.PTYInstanceSnapshot) []byte {
+		return []byte(`{"type":"pi-bridge-state"}`)
+	})
+	client := &Client{Send: make(chan []byte, 1)}
+	hub.Register("pane-1", client)
+	client.Send <- []byte{0x01} // the queue is full
+	if hub.enqueueBridgeSnapshot(pty.PTYInstanceSnapshot{ID: "pane-1"}, client) {
+		t.Fatal("attach snapshot queued into a full client")
+	}
+	if len(client.Send) != 1 {
+		t.Fatalf("queued frames=%d, want 1 (nothing evicted)", len(client.Send))
+	}
+}
+
+// A bridge-managed pane must not lose a queued control frame to PTY
+// output: the output path closes the congested client instead of
+// evicting the queued control, so the attach snapshot replays the state
+// after the reconnect.
+func TestManagedPaneOutputClosesFullClientInsteadOfEvicting(t *testing.T) {
+	hub := NewHub(0)
+	hub.SetBridgeAttach(func(pty.PTYInstanceSnapshot) []byte {
+		return []byte(`{"type":"pi-bridge-state"}`)
+	})
+	client := &Client{Send: make(chan []byte, 3)}
+	hub.Register("pane-1", client)
+	// The attach snapshot marks the pane bridge-managed.
+	if !hub.enqueueBridgeSnapshot(pty.PTYInstanceSnapshot{ID: "pane-1"}, client) {
+		t.Fatal("attach snapshot not queued")
+	}
+	// Fill the queue; no writer drains it.
+	client.Send <- []byte{0x01, 'a'}
+	client.Send <- []byte{0x01, 'b'}
+	if err := hub.Ingest("pane-1", []byte("output")); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	// Nothing was evicted and the output never entered the queue: the
+	// congested client is closed for reconnect instead.
+	frames := drainFrames(client.Send)
+	if len(frames) != 3 {
+		t.Fatalf("queued frames=%d, want 3 (nothing evicted)", len(frames))
+	}
+	if frames[0][0] != 0x02 {
+		t.Fatalf("queued control evicted by output: %v", frames[0])
+	}
+	for _, f := range frames {
+		if bytes.Equal(f, []byte{0x01, 'o', 'u', 't', 'p', 'u', 't'}) {
+			t.Fatal("output queued on a managed pane")
+		}
+	}
+}
+
+// An unmanaged pane keeps the default drop policy: a full queue evicts
+// the oldest frame to make room for the new output.
+func TestUnmanagedPaneOutputKeepsDropPolicy(t *testing.T) {
+	hub := NewHub(0)
+	client := &Client{Send: make(chan []byte, 2)}
+	hub.Register("pane-1", client)
+	client.Send <- []byte{0x01, 'o', 'l', 'd'}
+	client.Send <- []byte{0x01, 'n', 'e', 'w'}
+	if err := hub.Ingest("pane-1", []byte("output")); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	frames := drainFrames(client.Send)
+	for _, f := range frames {
+		if bytes.Equal(f, []byte{0x01, 'o', 'u', 't', 'p', 'u', 't'}) {
+			return
+		}
+	}
+	t.Fatalf("output not queued on an unmanaged pane: %v", frames)
 }
 
 func TestBroadcastBridgeLeavesQueuedFramesUndisturbed(t *testing.T) {

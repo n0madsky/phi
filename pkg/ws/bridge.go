@@ -256,6 +256,9 @@ func (h *Hub) enqueueBridgeSnapshot(snapshot pty.PTYInstanceSnapshot, client *Cl
 	if !ph.clients[client] {
 		return false
 	}
+	// The bridge produced a snapshot for this pane: from here on its
+	// attachments use the close-on-overflow policy.
+	ph.bridgeManaged = true
 	select {
 	case client.Send <- frame:
 		return true

@@ -89,6 +89,12 @@ type PaneHub struct {
 	recording    *coldRecording
 	recordingErr error
 
+	// bridgeManaged marks a pane with an active Pi bridge. Its
+	// attachments use the close-on-overflow policy: a full send queue
+	// closes the socket instead of evicting queued frames, so a queued
+	// bridge control is never silently dropped.
+	bridgeManaged bool
+
 	// epoch changes identity: a fresh random value per pane creation, so
 	// stale clients/caches cannot mix output from a previous PTY lifetime
 	// under the same pane id.
@@ -691,6 +697,22 @@ func (h *Hub) ClosePane(paneID string) {
 	log.Printf("[ws] Closed pane %s; cold recording retained", paneID)
 }
 
+// deliverOrClose pushes msg to a bridge-managed attachment. A full send
+// queue closes the socket instead of evicting queued frames: the client
+// reconnects and the attach snapshot replays the latest bridge state, so
+// a queued control frame survives the congestion.
+func (h *Hub) deliverOrClose(client *Client, msg []byte) {
+	select {
+	case client.Send <- msg:
+		client.FullSince = time.Time{}
+	default:
+		client.logger().Warn("ws send queue full; closing for reconnect")
+		if client.Ws != nil {
+			_ = client.Ws.Close()
+		}
+	}
+}
+
 // deliverOrDrop pushes msg to client's Send channel. If the channel is
 // full, it drops the oldest queued frame(s) to make room (bounded to
 // 100), injects a one-shot 5s-rate-limited "[phi: output dropped]" warning,
@@ -832,17 +854,28 @@ func (h *Hub) Ingest(paneID string, payload []byte) error {
 				binary.BigEndian.PutUint64(hotMsg[1:9], start)
 				copy(hotMsg[9:], payload)
 			}
-			h.deliverOrDrop(client, hotMsg)
+			h.deliverPaneFrame(ph, client, hotMsg)
 		} else {
 			if legacyMsg == nil {
 				legacyMsg = make([]byte, len(payload)+1)
 				legacyMsg[0] = 0x01
 				copy(legacyMsg[1:], payload)
 			}
-			h.deliverOrDrop(client, legacyMsg)
+			h.deliverPaneFrame(ph, client, legacyMsg)
 		}
 	}
 	return nil
+}
+
+// deliverPaneFrame pushes one frame to a client of ph. Bridge-managed
+// panes close a full client instead of evicting queued frames, so PTY
+// output cannot drop an already queued bridge control.
+func (h *Hub) deliverPaneFrame(ph *PaneHub, client *Client, msg []byte) {
+	if ph.bridgeManaged {
+		h.deliverOrClose(client, msg)
+		return
+	}
+	h.deliverOrDrop(client, msg)
 }
 
 func (h *Hub) Broadcast(paneID string, msgType byte, payload []byte) {
@@ -862,7 +895,7 @@ func (h *Hub) Broadcast(paneID string, msgType byte, payload []byte) {
 	defer ph.mu.Unlock()
 
 	for client := range ph.clients {
-		h.deliverOrDrop(client, msg)
+		h.deliverPaneFrame(ph, client, msg)
 	}
 }
 
@@ -888,15 +921,7 @@ func (h *Hub) BroadcastBridge(paneID string, payload []byte) {
 	defer ph.mu.Unlock()
 
 	for client := range ph.clients {
-		select {
-		case client.Send <- msg:
-			client.FullSince = time.Time{}
-		default:
-			client.logger().Warn("ws bridge frame blocked; closing for reconnect", "pane", paneID)
-			if client.Ws != nil {
-				_ = client.Ws.Close()
-			}
-		}
+		h.deliverOrClose(client, msg)
 	}
 }
 

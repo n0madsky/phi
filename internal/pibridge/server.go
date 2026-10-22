@@ -319,46 +319,38 @@ func (s *Server) Connect(stream pibridgepb.Integration_ConnectServer) error {
 		_ = trySendProtocolError(stream, pane, proc, gen, pibridgepb.ProtocolErrorCode_PROTOCOL_ERROR_STALE_GENERATION, "stale generation")
 		return status.Error(codes.FailedPrecondition, "stale generation")
 	}
-	if gen == l.maxGen && l.maxGen != 0 {
-		if l.runtimeID != hello.GetRuntimeId() || l.sessionID != hello.GetSessionId() {
+	sameGen := gen == l.maxGen && l.maxGen != 0
+	if sameGen && (l.runtimeID != hello.GetRuntimeId() || l.sessionID != hello.GetSessionId()) {
+		l.mu.Unlock()
+		_ = trySendProtocolError(stream, pane, proc, gen, pibridgepb.ProtocolErrorCode_PROTOCOL_ERROR_DUPLICATE_RUNTIME, "conflicting runtime")
+		return status.Error(codes.FailedPrecondition, "conflicting runtime")
+	}
+	snap := hello.GetCurrentState()
+	if snap != nil {
+		// Validate before the lease changes: a rejected hello must
+		// not advance the generation or the retained state.
+		if err := validateSnapshot(snap, hello.GetSessionId()); err != nil {
 			l.mu.Unlock()
-			_ = trySendProtocolError(stream, pane, proc, gen, pibridgepb.ProtocolErrorCode_PROTOCOL_ERROR_DUPLICATE_RUNTIME, "conflicting runtime")
-			return status.Error(codes.FailedPrecondition, "conflicting runtime")
+			return status.Error(codes.InvalidArgument, err.Error())
 		}
-		if hello.GetCurrentState() != nil {
-			if err := validateSnapshot(hello.GetCurrentState(), hello.GetSessionId()); err != nil {
-				l.mu.Unlock()
-				return status.Error(codes.InvalidArgument, err.Error())
-			}
-			l.lastState = hello.GetCurrentState()
-			// Same-generation reconnect: merge edges the runtime
-			// recorded while offline. Duplicates are ignored; only
-			// advancing sequences land.
-			for _, r := range hello.GetCurrentState().GetJournal() {
-				l.jrn.append(r.GetEventSequence(), r.GetRunId(), r.GetSettled(), r.GetOutcome())
-			}
-		}
-	} else {
+	}
+	if !sameGen {
 		l.maxGen = gen
 		l.runtimeID = hello.GetRuntimeId()
 		l.sessionID = hello.GetSessionId()
 		l.jrn.reset()
-		if hello.GetCurrentState() != nil {
-			if err := validateSnapshot(hello.GetCurrentState(), hello.GetSessionId()); err != nil {
-				l.mu.Unlock()
-				return status.Error(codes.InvalidArgument, err.Error())
-			}
-			l.lastState = hello.GetCurrentState()
-			for _, r := range hello.GetCurrentState().GetJournal() {
-				l.jrn.append(r.GetEventSequence(), r.GetRunId(), r.GetSettled(), r.GetOutcome())
-			}
-			if hello.GetCurrentState().GetJournalGap() {
-				// Gap from the new runtime is retained in lastState;
-				// the server journal starts fresh and fills via events.
-			}
-		} else {
-			l.lastState = nil
+	}
+	if snap != nil {
+		l.lastState = snap
+		// Merge the edges the runtime recorded while offline.
+		// Duplicates are ignored; only advancing sequences land. A new
+		// runtime starts from a fresh journal, so its gap stays in
+		// lastState and the journal fills from live events.
+		for _, r := range snap.GetJournal() {
+			l.jrn.append(r.GetEventSequence(), r.GetRunId(), r.GetSettled(), r.GetOutcome())
 		}
+	} else if !sameGen {
+		l.lastState = nil
 	}
 	if l.state == leaseRevoked {
 		l.mu.Unlock()

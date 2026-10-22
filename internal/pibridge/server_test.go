@@ -274,6 +274,49 @@ func TestConflictingRuntimeRejected(t *testing.T) {
 	}
 }
 
+func TestRejectedHelloKeepsLeaseGeneration(t *testing.T) {
+	s, sock, cleanup := testServer(t)
+	defer cleanup()
+	proc, token, err := s.RegisterPending("pane-bad")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	s.Complete(proc)
+	first, cancelFirst := openStream(t, sock, "pane-bad", proc, token)
+	defer cancelFirst()
+	if err := first.Send(testHello("pane-bad", proc, 1, CapabilityLifecycle)); err != nil {
+		t.Fatalf("send gen1: %v", err)
+	}
+	recvAccepted(t, first)
+
+	// A newer generation with an invalid snapshot is refused. The
+	// refusal must leave the lease on generation 1.
+	bad, cancelBad := openStream(t, sock, "pane-bad", proc, token)
+	defer cancelBad()
+	invalid := testHello("pane-bad", proc, 2, CapabilityLifecycle)
+	invalid.GetHello().CurrentState.SessionId = "other"
+	if err := bad.Send(invalid); err != nil {
+		t.Fatalf("send invalid: %v", err)
+	}
+	for {
+		_, err := bad.Recv()
+		if err != nil {
+			if status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("invalid hello code=%v, want InvalidArgument", status.Code(err))
+			}
+			break
+		}
+	}
+
+	// Generation 1 is still live: the refused hello did not advance it.
+	again, cancelAgain := openStream(t, sock, "pane-bad", proc, token)
+	defer cancelAgain()
+	if err := again.Send(testHello("pane-bad", proc, 1, CapabilityLifecycle)); err != nil {
+		t.Fatalf("send gen1 again: %v", err)
+	}
+	recvAccepted(t, again)
+}
+
 func TestReconnectReplacesStreamAtomically(t *testing.T) {
 	s, sock, cleanup := testServer(t)
 	defer cleanup()
