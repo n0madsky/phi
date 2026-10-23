@@ -203,7 +203,7 @@ func configFilePath() string {
 			"isolate this test from ~/.phi/config.json — see the doc comment on " +
 			"testConfigPath.")
 	}
-	return expandHome("~/.phi/config.json")
+	return filepath.Join(system.PhiDataDir(), "config.json")
 }
 
 // customBackendsDir returns the directory phi scans for custom
@@ -226,7 +226,7 @@ func customBackendsDir() string {
 			"isolate this test from ~/.phi/backends/ — see the doc comment on " +
 			"testCustomBackendsDir.")
 	}
-	return expandHome("~/.phi/backends/")
+	return filepath.Join(system.PhiDataDir(), "backends")
 }
 
 // overrideDisplayName returns the hostname_override label for identity

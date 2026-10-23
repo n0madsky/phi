@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { describe, expect, it, vi } from 'vitest';
+import type { ServiceError } from '@grpc/grpc-js';
 import { InvalidTargetError } from './endpoint.js';
 import {
     BridgeChannel,
@@ -84,6 +86,134 @@ describe('BridgeChannel target validation', () => {
         // target check passed. The client must exist by then.
         await channel.connect(hello()).catch(() => {});
         expect(calls()).toBe(1);
+        channel.close();
+    });
+});
+
+/** Mock duplex stream: hello succeeds, later writes stall forever. */
+class StallingDuplex extends EventEmitter {
+    writes = 0;
+    cancels = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    write(msg: any, cb?: () => void): boolean {
+        void msg;
+        this.writes += 1;
+        if (this.writes === 1) {
+            queueMicrotask(() => {
+                cb?.();
+                this.emit('data', {
+                    payload: {
+                        $case: 'accepted',
+                        value: {
+                            protocolVersion: 1,
+                            capabilities: [],
+                            runtimeGeneration: 1n,
+                            runtimeId: 'rt',
+                        },
+                    },
+                });
+            });
+            return true;
+        }
+        return false;
+    }
+    end(): void {}
+    cancel(): void {
+        this.cancels += 1;
+        queueMicrotask(() => {
+            this.emit('status', {
+                code: 1,
+                details: 'Cancelled',
+                metadata: {},
+            } as ServiceError);
+        });
+    }
+}
+
+describe('BridgeChannel blocked sends', () => {
+    it('reports a locally timed-out send as retryable', async () => {
+        vi.useFakeTimers();
+        try {
+            let reported: ServiceError | null | undefined;
+            const duplex = new StallingDuplex();
+            const factory: ClientFactory = () => ({
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                connect: () => duplex as any,
+                close: () => {},
+            });
+            const channel = new BridgeChannel(
+                CREDS,
+                {
+                    onMessage: () => {},
+                    onStatus: (s) => {
+                        reported = s;
+                    },
+                },
+                factory,
+            );
+            const accepted = channel.connect(hello());
+            await vi.advanceTimersByTimeAsync(0);
+            await accepted;
+            expect(channel.send(hello())).toBe(true);
+            await vi.advanceTimersByTimeAsync(6000);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(duplex.cancels).toBe(1);
+            expect(reported?.code).toBe(14);
+            channel.close();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('preserves a genuine remote cancellation as terminal', async () => {
+        let reported: ServiceError | null | undefined;
+        const duplex = new EventEmitter() as EventEmitter & {
+            write: (msg: unknown, cb?: () => void) => boolean;
+            end: () => void;
+            cancel: () => void;
+        };
+        duplex.write = (_msg: unknown, cb?: () => void) => {
+            queueMicrotask(() => {
+                cb?.();
+                duplex.emit('data', {
+                    payload: {
+                        $case: 'accepted',
+                        value: {
+                            protocolVersion: 1,
+                            capabilities: [],
+                            runtimeGeneration: 1n,
+                            runtimeId: 'rt',
+                        },
+                    },
+                });
+            });
+            return true;
+        };
+        duplex.end = () => {};
+        duplex.cancel = () => {};
+        const factory: ClientFactory = () => ({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            connect: () => duplex as any,
+            close: () => {},
+        });
+        const channel = new BridgeChannel(
+            CREDS,
+            {
+                onMessage: () => {},
+                onStatus: (s) => {
+                    reported = s;
+                },
+            },
+            factory,
+        );
+        await channel.connect(hello());
+        duplex.emit('status', {
+            code: 1,
+            details: 'revoked',
+            metadata: {},
+        } as ServiceError);
+        await new Promise((r) => setTimeout(r, 0));
+        expect(reported?.code).toBe(1);
         channel.close();
     });
 });

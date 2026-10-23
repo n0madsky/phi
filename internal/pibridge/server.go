@@ -25,8 +25,8 @@ type Server struct {
 	reg *registry
 
 	grpcServer *grpc.Server
-	onSettled  func(paneID, processID string, runID uint64, outcome pibridgepb.RunOutcome)
-	onState    func(paneID, processID string, running bool, model string, caps []string)
+	onSettled  func(paneID, processID string, generation, runID uint64, outcome pibridgepb.RunOutcome)
+	onState    func(paneID, processID string, generation uint64, running bool, model string, caps []string)
 }
 
 // NewServer creates a bridge server with bounded gRPC limits and no TCP
@@ -48,17 +48,18 @@ func (s *Server) GRPCServer() *grpc.Server {
 }
 
 // SetOnSettled registers the callback fired once for each freshly appended
-// settlement edge (duplicates and out-of-order edges never fire). Set before
+// settlement edge (duplicates and out-of-order edges never fire), including
+// offline edges merged from a Hello journal. Set before
 // serving; the callback runs on a stream goroutine, must return quickly,
 // and must not call back into the Server.
-func (s *Server) SetOnSettled(fn func(paneID, processID string, runID uint64, outcome pibridgepb.RunOutcome)) {
+func (s *Server) SetOnSettled(fn func(paneID, processID string, generation, runID uint64, outcome pibridgepb.RunOutcome)) {
 	s.onSettled = fn
 }
 
 // SetOnState registers the callback fired after each accepted snapshot
 // (hello or state) updates the stored lease state. Same contract as
 // SetOnSettled; the callback receives copies, never shared slices.
-func (s *Server) SetOnState(fn func(paneID, processID string, running bool, model string, caps []string)) {
+func (s *Server) SetOnState(fn func(paneID, processID string, generation uint64, running bool, model string, caps []string)) {
 	s.onState = fn
 }
 
@@ -67,7 +68,7 @@ func (s *Server) SetOnState(fn func(paneID, processID string, running bool, mode
 // slice (state snapshot) keeps the last negotiated set server-side; the
 // callback receives the stored set. It runs lock-free on a stream
 // goroutine and never calls back into the Server.
-func (s *Server) fireState(paneID, processID string, snap *pibridgepb.StateSnapshot, caps []string) {
+func (s *Server) fireState(paneID, processID string, generation uint64, snap *pibridgepb.StateSnapshot, caps []string) {
 	if s.onState == nil {
 		return
 	}
@@ -87,7 +88,7 @@ func (s *Server) fireState(paneID, processID string, snap *pibridgepb.StateSnaps
 	if m := snap.GetModel(); m != nil {
 		model = m.GetProvider() + "/" + m.GetModel()
 	}
-	s.onState(paneID, processID, running, model, caps)
+	s.onState(paneID, processID, generation, running, model, caps)
 }
 
 // Stop drains gracefully for shutdownDrainTimeout, then force-stops.
@@ -340,6 +341,11 @@ func (s *Server) Connect(stream pibridgepb.Integration_ConnectServer) error {
 		l.sessionID = hello.GetSessionId()
 		l.jrn.reset()
 	}
+	type pendingSettlement struct {
+		runID   uint64
+		outcome pibridgepb.RunOutcome
+	}
+	var pending []pendingSettlement
 	if snap != nil {
 		l.lastState = snap
 		// Merge the edges the runtime recorded while offline.
@@ -347,7 +353,9 @@ func (s *Server) Connect(stream pibridgepb.Integration_ConnectServer) error {
 		// runtime starts from a fresh journal, so its gap stays in
 		// lastState and the journal fills from live events.
 		for _, r := range snap.GetJournal() {
-			l.jrn.append(r.GetEventSequence(), r.GetRunId(), r.GetSettled(), r.GetOutcome())
+			if l.jrn.append(r.GetEventSequence(), r.GetRunId(), r.GetSettled(), r.GetOutcome()) && r.GetSettled() {
+				pending = append(pending, pendingSettlement{runID: r.GetRunId(), outcome: r.GetOutcome()})
+			}
 		}
 	} else if !sameGen {
 		l.lastState = nil
@@ -370,6 +378,23 @@ func (s *Server) Connect(stream pibridgepb.Integration_ConnectServer) error {
 		oldPeer.closeWith(codes.Canceled, "replaced by reconnect")
 	}
 	go p.runWriter()
+
+	// Publish offline settlements merged from the Hello journal before the
+	// state snapshot, mirroring the live settled-then-state order. The
+	// journal already merged under the lease lock; publishing here (after
+	// unlock, before Accepted) survives an Accepted delivery failure that
+	// would otherwise strand the edges as future duplicates. Fenced to the
+	// installing peer so a concurrent replacement wins.
+	if len(pending) > 0 && s.onSettled != nil {
+		l.mu.Lock()
+		current := l.peer == p && l.maxGen == gen && l.state != leaseRevoked
+		l.mu.Unlock()
+		if current {
+			for _, st := range pending {
+				s.onSettled(pane, proc, gen, st.runID, st.outcome)
+			}
+		}
+	}
 
 	acceptedCaps := make([]string, 0, len(caps))
 	for c := range caps {
@@ -396,7 +421,7 @@ func (s *Server) Connect(stream pibridgepb.Integration_ConnectServer) error {
 		}
 		return status.Error(codes.Unavailable, "peer closed")
 	}
-	s.fireState(pane, proc, hello.GetCurrentState(), acceptedCaps)
+	s.fireState(pane, proc, gen, hello.GetCurrentState(), acceptedCaps)
 
 	for {
 		msg, err := p.recv()
@@ -441,7 +466,11 @@ func (s *Server) detachPeer(l *lease, p *peer) {
 }
 
 // handleMessage validates and applies one Pi → Phi message. Protocol
-// violations close the stream with a gRPC status.
+// violations close the stream with a gRPC status. Stale peers (replaced
+// or revoked) are ignored: the check runs under the lease lock and the
+// journal append holds that lock, so a replacement reset cannot interleave
+// with an old append. Callbacks carry the peer generation so the host can
+// fence delayed old callbacks after the lock is released.
 func (s *Server) handleMessage(l *lease, p *peer, msg *pibridgepb.PiToPhi) error {
 	switch {
 	case msg.GetHello() != nil:
@@ -451,7 +480,13 @@ func (s *Server) handleMessage(l *lease, p *peer, msg *pibridgepb.PiToPhi) error
 		if ev.GetEventSequence() == 0 || ev.GetRunId() == 0 {
 			return status.Error(codes.InvalidArgument, "lifecycle ids required")
 		}
+		l.mu.Lock()
+		if l.peer != p || l.state == leaseRevoked || p.generation != l.maxGen {
+			l.mu.Unlock()
+			return nil
+		}
 		l.jrn.append(ev.GetEventSequence(), ev.GetRunId(), false, pibridgepb.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
+		l.mu.Unlock()
 		return nil
 	case msg.GetAgentSettled() != nil:
 		ev := msg.GetAgentSettled()
@@ -466,12 +501,22 @@ func (s *Server) handleMessage(l *lease, p *peer, msg *pibridgepb.PiToPhi) error
 		default:
 			return status.Error(codes.InvalidArgument, "unknown outcome")
 		}
-		if l.jrn.append(ev.GetEventSequence(), ev.GetRunId(), true, ev.GetOutcome()) {
+		l.mu.Lock()
+		if l.peer != p || l.state == leaseRevoked || p.generation != l.maxGen {
+			l.mu.Unlock()
+			return nil
+		}
+		fresh := l.jrn.append(ev.GetEventSequence(), ev.GetRunId(), true, ev.GetOutcome())
+		pane, proc, gen := l.paneID, l.processID, p.generation
+		runID, outcome := ev.GetRunId(), ev.GetOutcome()
+		l.mu.Unlock()
+		if fresh {
 			// Fresh edge only: duplicates and out-of-order arrivals never
 			// notify. No locks are held here; the callback must not call
-			// back into the Server.
+			// back into the Server. The generation lets the host drop a
+			// delayed old callback after a replacement.
 			if s.onSettled != nil {
-				s.onSettled(l.paneID, l.processID, ev.GetRunId(), ev.GetOutcome())
+				s.onSettled(pane, proc, gen, runID, outcome)
 			}
 		}
 		return nil
@@ -481,9 +526,15 @@ func (s *Server) handleMessage(l *lease, p *peer, msg *pibridgepb.PiToPhi) error
 			return status.Error(codes.InvalidArgument, err.Error())
 		}
 		l.mu.Lock()
+		if l.peer != p || l.state == leaseRevoked || p.generation != l.maxGen {
+			l.mu.Unlock()
+			return nil
+		}
 		l.lastState = snap
+		pane, proc, gen := l.paneID, l.processID, p.generation
+		caps := append([]string(nil), l.caps...)
 		l.mu.Unlock()
-		s.fireState(l.paneID, l.processID, snap, nil)
+		s.fireState(pane, proc, gen, snap, caps)
 		return nil
 	default:
 		return status.Error(codes.InvalidArgument, "unsupported payload")

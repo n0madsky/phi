@@ -34,13 +34,15 @@ Two switches, one per side. Defaults bridge every phi-spawned Pi.
   injected or installed. Takes effect on next Pi start.
 
 Manual install: phi keeps a stable copy at
-`~/.phi/pi-bridge/phi-phi-extension.cjs` (rewritten when the bundled
-build differs, and never when the installed copy is newer), and
-registers this file path in Pi settings so no copy can go stale:
+`~/.phi/pi-bridge/pi-phi-extension.cjs` (rewritten when the bundled
+build differs, and never when the installed copy is newer). With Phi's
+`--data-dir`, use `<data-dir>/pi-bridge/pi-phi-extension.cjs` instead. Add this
+file path to Pi settings `packages` yourself; phi never edits Pi
+settings, it only keeps the copy current:
 
 ```json
 {
-  "packages": ["/Users/you/.phi/pi-bridge/phi-phi-extension.cjs"]
+  "packages": ["/Users/you/.phi/pi-bridge/pi-phi-extension.cjs"]
 }
 ```
 

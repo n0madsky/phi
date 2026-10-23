@@ -79,6 +79,12 @@ const TERMINAL_STATUS_CODES = new Set([
     1, // CANCELLED: server-side revoke or replace; retry cannot fix it.
 ]);
 
+function isTerminalConnectError(err: unknown): boolean {
+    if (typeof err !== 'object' || err === null) return false;
+    const code = (err as { code?: unknown }).code;
+    return typeof code === 'number' && TERMINAL_STATUS_CODES.has(code);
+}
+
 /** One claimed extension runtime for one Pi session. */
 export class Runtime {
     readonly runtimeId: string = randomUUID();
@@ -402,6 +408,11 @@ export class Runtime {
             // A malformed target can never become valid: stop instead
             // of reconnecting to a bad address for the session's life.
             if (err instanceof InvalidTargetError) return;
+            // A terminal handshake rejection (bad token, revoked lease,
+            // duplicate runtime, remote cancel) is final: the pre-Accepted
+            // status already told the stream handler to stop, so the
+            // rejected connect promise must not schedule a retry either.
+            if (isTerminalConnectError(err)) return;
             if (!this.shutdownRequested) this.scheduleRetry();
             return;
         } finally {

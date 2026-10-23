@@ -85,7 +85,7 @@ func spawnTerminal(ctx context.Context, c coders.Coder, req SpawnRequest, cfg Co
 		revokeBridge()
 		return nil, terminalLaunchError{http.StatusInternalServerError, err}
 	}
-	piBridge.Complete(inst.ID)
+	piBridge.Complete(inst)
 	if piTitleService != nil {
 		piTitleService.Register(inst)
 	}

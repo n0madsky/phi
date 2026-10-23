@@ -153,6 +153,36 @@ describe('pi-bridge settled bell', () => {
         expect(shell.isAttention).toBe(false);
         expect(tab.isAttention).toBe(false);
     });
+
+    it('scopes the high-water mark to the runtime generation', () => {
+        const { manager, showToast } = bridgeManager();
+        const tab = piTab();
+        const settled = (generation, run) =>
+            manager._acceptPiBridgeSettled(tab, {
+                type: 'pi-bridge-settled',
+                pane_id: 'pane-1',
+                generation,
+                run,
+                outcome: 'completed',
+            });
+        settled('1', '1');
+        expect(showToast).toHaveBeenCalledTimes(1);
+        settled('1', '1');
+        expect(showToast).toHaveBeenCalledTimes(1);
+        settled('1', '2');
+        expect(showToast).toHaveBeenCalledTimes(2);
+        // A new runtime restarts numbering: run 1 in generation 2 is
+        // new even though it is numerically below the old water mark.
+        settled('2', '1');
+        expect(showToast).toHaveBeenCalledTimes(3);
+        settled('2', '1');
+        expect(showToast).toHaveBeenCalledTimes(3);
+        // A delayed old-generation edge is stale, never a bell.
+        settled('1', '3');
+        expect(showToast).toHaveBeenCalledTimes(3);
+        expect(tab._piBridgeGeneration).toBe('2');
+        expect(tab._piBridgeLastRun).toBe('1');
+    });
 });
 
 describe('pi-bridge attach state', () => {
@@ -242,6 +272,66 @@ describe('pi-bridge attach state', () => {
             outcome: 'completed',
         });
         expect(tab._piBridgeLive).toBe(true);
+    });
+
+    it('rings reconnect catch-up after a live idle baseline', () => {
+        const { manager, showToast } = bridgeManager();
+        const tab = piTab();
+        // Attached before any run: live idle establishes a zero baseline.
+        manager._acceptPiBridgeState(tab, {
+            type: 'pi-bridge-state',
+            pane_id: 'pane-1',
+            state: 'managed',
+            generation: '1',
+            running: 'false',
+        });
+        expect(showToast).not.toHaveBeenCalled();
+        expect(tab._piBridgeLastRun).toBe('0');
+        // Missed the settlement; the reconnect snapshot must ring once.
+        manager._acceptPiBridgeState(tab, {
+            type: 'pi-bridge-state',
+            pane_id: 'pane-1',
+            state: 'managed',
+            generation: '1',
+            running: 'false',
+            last_run: '1',
+            last_outcome: 'completed',
+        });
+        expect(showToast).toHaveBeenCalledTimes(1);
+        // Re-attach replays without a second bell.
+        manager._acceptPiBridgeState(tab, {
+            type: 'pi-bridge-state',
+            pane_id: 'pane-1',
+            state: 'managed',
+            generation: '1',
+            running: 'false',
+            last_run: '1',
+            last_outcome: 'completed',
+        });
+        expect(showToast).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves pre-hello state without a baseline', () => {
+        const { manager, showToast } = bridgeManager();
+        const tab = piTab();
+        manager._acceptPiBridgeState(tab, {
+            type: 'pi-bridge-state',
+            pane_id: 'pane-1',
+            state: 'managed',
+        });
+        expect(tab._piBridgeLastRun).toBeUndefined();
+        // First sight of retained history stays silent.
+        manager._acceptPiBridgeState(tab, {
+            type: 'pi-bridge-state',
+            pane_id: 'pane-1',
+            state: 'managed',
+            generation: '1',
+            running: 'false',
+            last_run: '5',
+            last_outcome: 'completed',
+        });
+        expect(showToast).not.toHaveBeenCalled();
+        expect(tab._piBridgeLastRun).toBe('5');
     });
 });
 

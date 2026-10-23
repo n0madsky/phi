@@ -71,6 +71,7 @@ export class BridgeChannel {
     private writerActive = false;
     private writerError: Error | null = null;
     private closed = false;
+    private blockedTimeout = false;
     private acceptedWaiters: Array<{
         resolve: (a: Accepted) => void;
         reject: (e: Error) => void;
@@ -106,6 +107,23 @@ export class BridgeChannel {
         const stream = this.client.connect(md);
         this.stream = stream;
         stream.on('status', (status: ServiceError) => {
+            // A blocked-send timeout cancels the stream locally; grpc-js
+            // reports that self-cancel as CANCELLED. Preserve the local
+            // reason as retryable UNAVAILABLE so the runtime reconnects
+            // instead of treating it as a remote lease revocation.
+            if (this.blockedTimeout && status.code === 1) {
+                const retryable = Object.assign(
+                    new Error('blocked send timeout'),
+                    {
+                        code: 14,
+                        details: 'blocked send timeout',
+                        metadata: status.metadata,
+                    },
+                ) as ServiceError;
+                this.failWaiters(retryable);
+                this.hooks.onStatus(retryable);
+                return;
+            }
             const terminal = status.code === 0 ? null : status;
             this.failWaiters(
                 terminal ?? new Error('stream ended before accepted'),
@@ -234,6 +252,7 @@ export class BridgeChannel {
                 if (settled) return;
                 settled = true;
                 this.writerError = new Error('blocked send timeout');
+                this.blockedTimeout = true;
                 try {
                     stream.cancel();
                 } catch {

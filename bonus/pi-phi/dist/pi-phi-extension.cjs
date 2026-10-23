@@ -26560,6 +26560,7 @@ var BridgeChannel = class {
   writerActive = false;
   writerError = null;
   closed = false;
+  blockedTimeout = false;
   acceptedWaiters = [];
   /** Open the stream, send Hello, and await Accepted or a status. */
   async connect(hello) {
@@ -26582,6 +26583,19 @@ var BridgeChannel = class {
     const stream = this.client.connect(md);
     this.stream = stream;
     stream.on("status", (status) => {
+      if (this.blockedTimeout && status.code === 1) {
+        const retryable = Object.assign(
+          new Error("blocked send timeout"),
+          {
+            code: 14,
+            details: "blocked send timeout",
+            metadata: status.metadata
+          }
+        );
+        this.failWaiters(retryable);
+        this.hooks.onStatus(retryable);
+        return;
+      }
       const terminal = status.code === 0 ? null : status;
       this.failWaiters(
         terminal ?? new Error("stream ended before accepted")
@@ -26697,6 +26711,7 @@ var BridgeChannel = class {
         if (settled) return;
         settled = true;
         this.writerError = new Error("blocked send timeout");
+        this.blockedTimeout = true;
         try {
           stream.cancel();
         } catch {
@@ -26731,6 +26746,11 @@ var TERMINAL_STATUS_CODES = /* @__PURE__ */ new Set([
   1
   // CANCELLED: server-side revoke or replace; retry cannot fix it.
 ]);
+function isTerminalConnectError(err) {
+  if (typeof err !== "object" || err === null) return false;
+  const code = err.code;
+  return typeof code === "number" && TERMINAL_STATUS_CODES.has(code);
+}
 var Runtime = class {
   constructor(opts) {
     this.opts = opts;
@@ -27006,6 +27026,7 @@ var Runtime = class {
       channel.close();
       if (this.channel === channel) this.channel = null;
       if (err instanceof InvalidTargetError) return;
+      if (isTerminalConnectError(err)) return;
       if (!this.shutdownRequested) this.scheduleRetry();
       return;
     } finally {

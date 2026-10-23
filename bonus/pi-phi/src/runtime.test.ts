@@ -354,6 +354,29 @@ describe('Runtime reconnect', () => {
         }
     });
 
+    it('stops when the handshake itself is terminally rejected', async () => {
+        for (const code of [16, 7, 9, 1]) {
+            const channels: MockChannel[] = [];
+            const rt = new Runtime({
+                creds: CREDS,
+                generation: 1n,
+                backoffBaseMs: 5,
+                backoffMaxMs: 10,
+                makeChannel: (_c, hooks) => {
+                    const ch = mockChannel();
+                    ch.hooks = hooks;
+                    ch.connectError = status(code);
+                    channels.push(ch);
+                    return ch;
+                },
+            });
+            rt.start(ctx());
+            await sleep(30);
+            expect(channels.length, `code ${code}`).toBe(1);
+            rt.shutdown();
+        }
+    });
+
     it('stops retrying when the target can never be valid', async () => {
         const channels: MockChannel[] = [];
         const rt = new Runtime({

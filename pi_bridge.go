@@ -65,6 +65,9 @@ type bridgePane struct {
 	processID   string
 	managed     bool
 	reason      string
+	inst        *pty.PTYInstance
+	gen         uint64
+	hasGen      bool
 	lastRun     uint64
 	hasRun      bool
 	lastOutcome string
@@ -108,7 +111,7 @@ func startPiBridge(hub *ws.Hub) *Bridge {
 	b.server.SetOnSettled(b.onSettled)
 	b.server.SetOnState(b.onState)
 	hub.SetBridgeAttach(b.encodeAttach)
-	hub.SetOnPaneExit(func(paneID string, _ int) { b.RevokePane(paneID) })
+	hub.SetOnPaneExit(func(inst *pty.PTYInstance, _ int) { b.handlePaneExit(inst) })
 	go func() {
 		_ = b.server.GRPCServer().Serve(listener)
 	}()
@@ -136,7 +139,7 @@ func (b *Bridge) materialize() error {
 // bridge bundle copy for manual Pi installs. Unlike the endpoint
 // copy, this path survives restarts, so a settings file-path entry
 // keeps working across upgrades.
-const piBridgeStableDir = ".phi/pi-bridge"
+const piBridgeStableDir = "pi-bridge"
 
 // compareStamp orders two "<version> <hash>" stamps by their leading
 // "X.Y.Z" version. The hash suffix marks the content, not the order.
@@ -192,11 +195,7 @@ func materializeStablePiBridgeAt(runtime func() ([]byte, error), version string)
 	if _, ok := stampVersion(version); !ok {
 		return fmt.Errorf("pi-phi: bundled version %q unparsable", version)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("pi-phi: home: %w", err)
-	}
-	dir := filepath.Join(home, piBridgeStableDir)
+	dir := filepath.Join(system.PhiDataDir(), piBridgeStableDir)
 	if raw, err := os.ReadFile(filepath.Join(dir, "VERSION")); err == nil {
 		installed := strings.TrimSpace(string(raw))
 		// The stamp carries the version and the content hash, so a
@@ -297,19 +296,28 @@ func (b *Bridge) Provision(paneID string, inject bool) (env map[string]string, a
 	return env, args, true
 }
 
-// Complete marks a provisioned lease live after successful spawn.
-// Unknown panes are ignored.
-func (b *Bridge) Complete(paneID string) {
-	if b == nil {
+// Complete binds the spawned instance and marks a provisioned lease live
+// after successful spawn. Unknown panes are ignored. The first instance
+// wins: a duplicate provision for a live pane never clobbers the owner.
+func (b *Bridge) Complete(inst *pty.PTYInstance) {
+	if b == nil || inst == nil {
 		return
 	}
 	b.mu.Lock()
-	p, ok := b.panes[paneID]
-	b.mu.Unlock()
-	if !ok || !p.managed {
+	p, ok := b.panes[inst.ID]
+	if !ok {
+		b.mu.Unlock()
 		return
 	}
-	b.server.Complete(p.processID)
+	if p.inst == nil {
+		p.inst = inst
+	}
+	processID, managed := p.processID, p.managed
+	b.mu.Unlock()
+	if !managed {
+		return
+	}
+	b.server.Complete(processID)
 }
 
 // RevokePane revokes a pane's lease and drops its record. Unknown panes
@@ -329,12 +337,36 @@ func (b *Bridge) RevokePane(paneID string) {
 	}
 }
 
+// handlePaneExit revokes a pane only when the exiting instance is the
+// registered owner. A delayed old PTY exit after a restore retry reuses the
+// same pane ID with a new instance pointer; that stale exit must not revoke
+// the replacement lease.
+func (b *Bridge) handlePaneExit(inst *pty.PTYInstance) {
+	if b == nil || inst == nil {
+		return
+	}
+	b.mu.Lock()
+	p, ok := b.panes[inst.ID]
+	if ok {
+		if p.inst != inst {
+			ok = false
+		} else {
+			delete(b.panes, inst.ID)
+		}
+	}
+	b.mu.Unlock()
+	if ok && p.managed {
+		b.server.Revoke(p.processID)
+	}
+}
+
 // BridgePaneState is the nonsecret per-pane bridge view for HTTP and
-// attach snapshots. RunID is decimal for JSON safety.
+// attach snapshots. RunID and generation are decimal for JSON safety.
 type BridgePaneState struct {
 	State        string   `json:"state"`
 	Reason       string   `json:"reason,omitempty"`
 	Running      *bool    `json:"running,omitempty"`
+	Generation   string   `json:"generation,omitempty"`
 	LastRun      string   `json:"last_run,omitempty"`
 	LastOutcome  string   `json:"last_outcome,omitempty"`
 	Model        string   `json:"model,omitempty"`
@@ -342,48 +374,72 @@ type BridgePaneState struct {
 }
 
 // PaneSnapshot reports the bridge view for one pane. Unknown panes and
-// nil bridges report plain.
+// nil bridges report plain. Retained fields are copied under b.mu; the
+// server lookup runs afterward with the copied process ID.
 func (b *Bridge) PaneSnapshot(paneID string) BridgePaneState {
 	if b == nil {
 		return BridgePaneState{State: piBridgePlain}
 	}
 	b.mu.Lock()
 	p, ok := b.panes[paneID]
+	var view bridgeStateView
+	var managed bool
+	var reason, processID string
+	if ok {
+		managed, reason, processID = p.managed, p.reason, p.processID
+		if managed {
+			view = p.snapshot()
+		}
+	}
 	b.mu.Unlock()
 	if !ok {
 		return BridgePaneState{State: piBridgePlain}
 	}
-	if !p.managed {
-		return BridgePaneState{State: piBridgeUnavailable, Reason: p.reason}
+	if !managed {
+		return BridgePaneState{State: piBridgeUnavailable, Reason: reason}
 	}
 	st := BridgePaneState{State: piBridgeManaged}
-	if p.hasRun {
-		st.LastRun = strconv.FormatUint(p.lastRun, 10)
-		st.LastOutcome = p.lastOutcome
+	if view.hasGen {
+		st.Generation = strconv.FormatUint(view.gen, 10)
 	}
-	if view, ok := b.server.PaneState(p.processID); ok && view.HasState {
-		running := view.State == pibridgepb.LogicalState_LOGICAL_STATE_RUNNING
+	if view.hasRun {
+		st.LastRun = strconv.FormatUint(view.lastRun, 10)
+		st.LastOutcome = view.lastOutcome
+	}
+	if srvView, ok := b.server.PaneState(processID); ok && srvView.HasState {
+		running := srvView.State == pibridgepb.LogicalState_LOGICAL_STATE_RUNNING
 		st.Running = &running
-		st.Model = view.Model
-		st.Capabilities = append(st.Capabilities, view.Caps...)
+		st.Model = srvView.Model
+		st.Capabilities = append(st.Capabilities, srvView.Caps...)
 	}
 	return st
 }
 
 // onState pushes a fresh bridge view after each accepted snapshot so
 // browsers track running state, model, and capabilities without
-// polling. Stale callbacks for revoked panes are dropped. It never
-// calls back into the Server; all live values arrive as arguments.
-func (b *Bridge) onState(paneID, processID string, running bool, model string, caps []string) {
+// polling. Stale callbacks for revoked panes or older generations are
+// dropped. A newer generation clears the obsolete retained settlement. It
+// never calls back into the Server; all live values arrive as arguments.
+func (b *Bridge) onState(paneID, processID string, generation uint64, running bool, model string, caps []string) {
 	b.mu.Lock()
 	p, ok := b.panes[paneID]
 	var view bridgeStateView
 	if ok && p.managed && p.processID == processID {
-		r := running
-		p.lastRunning = &r
-		p.lastModel = model
-		p.lastCaps = append(p.lastCaps[:0], caps...)
-		view = p.snapshot()
+		if p.hasGen && generation < p.gen {
+			ok = false
+		} else {
+			if !p.hasGen || generation > p.gen {
+				p.gen, p.hasGen = generation, true
+				p.hasRun = false
+				p.lastRun = 0
+				p.lastOutcome = ""
+			}
+			r := running
+			p.lastRunning = &r
+			p.lastModel = model
+			p.lastCaps = append(p.lastCaps[:0], caps...)
+			view = p.snapshot()
+		}
 	} else {
 		ok = false
 	}
@@ -398,6 +454,8 @@ func (b *Bridge) onState(paneID, processID string, running bool, model string, c
 
 // bridgeStateView is a lock-free copy of one pane's retained view.
 type bridgeStateView struct {
+	hasGen      bool
+	gen         uint64
 	hasRun      bool
 	lastRun     uint64
 	lastOutcome string
@@ -416,6 +474,8 @@ func (p *bridgePane) snapshot() bridgeStateView {
 		running = &r
 	}
 	return bridgeStateView{
+		hasGen:      p.hasGen,
+		gen:         p.gen,
 		hasRun:      p.hasRun,
 		lastRun:     p.lastRun,
 		lastOutcome: p.lastOutcome,
@@ -428,6 +488,9 @@ func (p *bridgePane) snapshot() bridgeStateView {
 // encodeBridgeState renders the managed bridge view from a copy.
 func encodeBridgeState(paneID string, view bridgeStateView) []byte {
 	frame := map[string]string{"type": "pi-bridge-state", "pane_id": paneID, "state": piBridgeManaged}
+	if view.hasGen {
+		frame["generation"] = strconv.FormatUint(view.gen, 10)
+	}
 	if view.hasRun {
 		frame["last_run"] = strconv.FormatUint(view.lastRun, 10)
 		frame["last_outcome"] = view.lastOutcome
@@ -449,13 +512,22 @@ func encodeBridgeState(paneID string, view bridgeStateView) []byte {
 }
 
 // onSettled retains the latest settlement per pane and notifies
-// browsers. Stale callbacks for revoked panes are dropped.
-func (b *Bridge) onSettled(paneID, processID string, runID uint64, outcome pibridgepb.RunOutcome) {
+// browsers. Stale callbacks for revoked panes or older generations are
+// dropped; a newer generation clears the obsolete retained run first.
+func (b *Bridge) onSettled(paneID, processID string, generation, runID uint64, outcome pibridgepb.RunOutcome) {
 	b.mu.Lock()
 	p, ok := b.panes[paneID]
 	if ok && p.managed && p.processID == processID {
-		p.lastRun, p.hasRun = runID, true
-		p.lastOutcome = outcomeName(outcome)
+		if p.hasGen && generation < p.gen {
+			ok = false
+		} else {
+			if !p.hasGen || generation > p.gen {
+				p.gen, p.hasGen = generation, true
+				p.hasRun = false
+			}
+			p.lastRun, p.hasRun = runID, true
+			p.lastOutcome = outcomeName(outcome)
+		}
 	} else {
 		ok = false
 	}
@@ -464,10 +536,11 @@ func (b *Bridge) onSettled(paneID, processID string, runID uint64, outcome pibri
 		return
 	}
 	payload, err := json.Marshal(map[string]string{
-		"type":    "pi-bridge-settled",
-		"pane_id": paneID,
-		"run":     strconv.FormatUint(runID, 10),
-		"outcome": outcomeName(outcome),
+		"type":       "pi-bridge-settled",
+		"pane_id":    paneID,
+		"generation": strconv.FormatUint(generation, 10),
+		"run":        strconv.FormatUint(runID, 10),
+		"outcome":    outcomeName(outcome),
 	})
 	if err != nil {
 		return

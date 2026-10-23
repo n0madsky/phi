@@ -84,13 +84,13 @@ func TestBridgeProvisionCompleteRevoke(t *testing.T) {
 		t.Fatal("double provision orphaned the live lease")
 	}
 
-	b.Complete("pane-1")
+	b.Complete(&pty.PTYInstance{ID: "pane-1"})
 	b.RevokePane("pane-1")
 	if got := b.PaneSnapshot("pane-1"); got.State != piBridgePlain {
 		t.Fatalf("revoked snapshot %+v, want plain", got)
 	}
-	b.RevokePane("pane-1") // idempotent
-	b.Complete("unknown")  // ignored
+	b.RevokePane("pane-1")                      // idempotent
+	b.Complete(&pty.PTYInstance{ID: "unknown"}) // ignored
 	if got := b.PaneSnapshot("unknown"); got.State != piBridgePlain {
 		t.Fatalf("unknown snapshot %+v, want plain", got)
 	}
@@ -125,7 +125,8 @@ func TestBridgeNilSafe(t *testing.T) {
 	if _, _, managed := b.Provision("pane-1", true); managed {
 		t.Fatal("nil bridge provisioned")
 	}
-	b.Complete("pane-1")
+	b.Complete(&pty.PTYInstance{ID: "pane-1"})
+	b.Complete(nil)
 	b.RevokePane("pane-1")
 	b.Stop()
 	if got := b.PaneSnapshot("pane-1"); got.State != piBridgePlain {
@@ -172,7 +173,7 @@ func TestBridgeSettlementNotifiesHub(t *testing.T) {
 	if !managed {
 		t.Fatal("provision not managed")
 	}
-	b.Complete("pane-1")
+	b.Complete(&pty.PTYInstance{ID: "pane-1"})
 
 	client := &ws.Client{Send: make(chan []byte, 8)}
 	hub.AttachHot("pane-1", client)
@@ -274,7 +275,7 @@ func TestBridgeStaleSettlementDropped(t *testing.T) {
 	<-client.Send
 	b.RevokePane("pane-1")
 
-	b.onSettled("pane-1", env[piBridgeEnvProcess], 3, pibridgepb.RunOutcome_RUN_OUTCOME_COMPLETED)
+	b.onSettled("pane-1", env[piBridgeEnvProcess], 1, 3, pibridgepb.RunOutcome_RUN_OUTCOME_COMPLETED)
 	select {
 	case frame := <-client.Send:
 		t.Fatalf("stale settlement notified: %s", frame[1:])
@@ -305,7 +306,7 @@ func TestBridgeAttachEncoding(t *testing.T) {
 	if view["type"] != "pi-bridge-state" || view["state"] != piBridgeManaged {
 		t.Fatalf("attach %+v", view)
 	}
-	b.onSettled("pane-1", env[piBridgeEnvProcess], 11, pibridgepb.RunOutcome_RUN_OUTCOME_ABORTED)
+	b.onSettled("pane-1", env[piBridgeEnvProcess], 1, 11, pibridgepb.RunOutcome_RUN_OUTCOME_ABORTED)
 	payload = b.encodeAttach(pty.PTYInstanceSnapshot{ID: "pane-1", Coder: "pi"})
 	view = nil
 	if err := json.Unmarshal(payload, &view); err != nil {
@@ -325,7 +326,7 @@ func TestBridgeSnapshotCopiesRunningFlag(t *testing.T) {
 	defer b.Stop()
 
 	env, _, _ := b.Provision("pane-1", true)
-	b.onState("pane-1", env[piBridgeEnvProcess], true, "p/m", []string{"pi.lifecycle.v1"})
+	b.onState("pane-1", env[piBridgeEnvProcess], 1, true, "p/m", []string{"pi.lifecycle.v1"})
 	b.mu.Lock()
 	p := b.panes["pane-1"]
 	view := p.snapshot()
@@ -385,10 +386,10 @@ func TestMaterializeStablePiBridge(t *testing.T) {
 	home := withTempHome(t)
 	stub := func() ([]byte, error) { return []byte("bundle-bytes"), nil }
 	stableFile := func() string {
-		return filepath.Join(home, piBridgeStableDir, piBridgeArtifactName)
+		return filepath.Join(home, ".phi", piBridgeStableDir, piBridgeArtifactName)
 	}
 	stableVersion := func() string {
-		raw, err := os.ReadFile(filepath.Join(home, piBridgeStableDir, "VERSION"))
+		raw, err := os.ReadFile(filepath.Join(home, ".phi", piBridgeStableDir, "VERSION"))
 		if err != nil {
 			t.Fatalf("read stable VERSION: %v", err)
 		}
@@ -429,7 +430,7 @@ func TestMaterializeStablePiBridge(t *testing.T) {
 	}
 
 	// Corrupt installed version loses to a well-formed bundled one.
-	if err := os.WriteFile(filepath.Join(home, piBridgeStableDir, "VERSION"), []byte("garbage"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".phi", piBridgeStableDir, "VERSION"), []byte("garbage"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := materializeStablePiBridgeAt(newer, "0.2.0"); err != nil {
@@ -481,5 +482,100 @@ func TestMaterializeStablePiBridge(t *testing.T) {
 	}
 	if stableVersion() != "0.2.0 hash-b" {
 		t.Fatal("newer install lost its version")
+	}
+}
+
+// Settlements are scoped to their runtime generation: a newer generation
+// clears the obsolete retained run, and delayed old callbacks are dropped.
+func TestBridgeGenerationScopesSettlements(t *testing.T) {
+	b := startPiBridge(testBridgeHub())
+	if b == nil {
+		t.Fatal("bridge did not start")
+	}
+	defer b.Stop()
+	env, _, _ := b.Provision("pane-1", true)
+	proc := env[piBridgeEnvProcess]
+	b.Complete(&pty.PTYInstance{ID: "pane-1"})
+	b.onState("pane-1", proc, 1, false, "p/m", []string{"pi.lifecycle.v1"})
+	b.onSettled("pane-1", proc, 1, 5, pibridgepb.RunOutcome_RUN_OUTCOME_COMPLETED)
+	if got := b.PaneSnapshot("pane-1"); got.Generation != "1" || got.LastRun != "5" {
+		t.Fatalf("gen1 snapshot %+v, want generation 1 last_run 5", got)
+	}
+	// New runtime generation clears the old retained run.
+	b.onState("pane-1", proc, 2, false, "p/m", []string{"pi.lifecycle.v1"})
+	if got := b.PaneSnapshot("pane-1"); got.Generation != "2" || got.LastRun != "" {
+		t.Fatalf("gen2 idle snapshot %+v, want generation 2 no last_run", got)
+	}
+	// Delayed old settlement must not overwrite the new generation.
+	b.onSettled("pane-1", proc, 1, 6, pibridgepb.RunOutcome_RUN_OUTCOME_COMPLETED)
+	if got := b.PaneSnapshot("pane-1"); got.Generation != "2" || got.LastRun != "" {
+		t.Fatalf("stale gen1 snapshot %+v, want generation 2 no last_run", got)
+	}
+	// New generation restarts run numbering from 1.
+	b.onSettled("pane-1", proc, 2, 1, pibridgepb.RunOutcome_RUN_OUTCOME_COMPLETED)
+	if got := b.PaneSnapshot("pane-1"); got.Generation != "2" || got.LastRun != "1" {
+		t.Fatalf("gen2 settled snapshot %+v, want generation 2 last_run 1", got)
+	}
+	// Delayed old state must not overwrite the new view.
+	b.onState("pane-1", proc, 1, true, "old/model", []string{"pi.lifecycle.v1"})
+	if got := b.PaneSnapshot("pane-1"); got.Generation != "2" || got.LastRun != "1" {
+		t.Fatalf("stale state snapshot %+v, want generation 2 last_run 1", got)
+	}
+}
+
+// PaneSnapshot must not race with settlement updates.
+func TestBridgePaneSnapshotConcurrent(t *testing.T) {
+	b := startPiBridge(testBridgeHub())
+	if b == nil {
+		t.Fatal("bridge did not start")
+	}
+	defer b.Stop()
+	env, _, _ := b.Provision("pane-1", true)
+	proc := env[piBridgeEnvProcess]
+	b.Complete(&pty.PTYInstance{ID: "pane-1"})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			_ = b.PaneSnapshot("pane-1")
+		}
+	}()
+	for i := uint64(1); i <= 200; i++ {
+		b.onSettled("pane-1", proc, 1, i, pibridgepb.RunOutcome_RUN_OUTCOME_COMPLETED)
+	}
+	<-done
+}
+
+// A delayed old PTY exit after a restore retry reuses the pane ID must not
+// revoke the replacement lease.
+func TestBridgeDelayedExitPreservesReplacement(t *testing.T) {
+	b := startPiBridge(testBridgeHub())
+	if b == nil {
+		t.Fatal("bridge did not start")
+	}
+	defer b.Stop()
+	_, _, _ = b.Provision("pane-1", true)
+	oldInst := &pty.PTYInstance{ID: "pane-1"}
+	b.Complete(oldInst)
+	// Restore probe failure: synchronous revoke before the retry.
+	b.RevokePane("pane-1")
+	env2, _, managed := b.Provision("pane-1", true)
+	if !managed {
+		t.Fatal("retry provision not managed")
+	}
+	newInst := &pty.PTYInstance{ID: "pane-1"}
+	b.Complete(newInst)
+	// Delayed old exit must be ignored.
+	b.handlePaneExit(oldInst)
+	if got := b.PaneSnapshot("pane-1"); got.State != piBridgeManaged {
+		t.Fatalf("delayed old exit revoked replacement: %+v", got)
+	}
+	if _, ok := b.server.PaneState(env2[piBridgeEnvProcess]); !ok {
+		t.Fatal("replacement lease missing after delayed old exit")
+	}
+	// Current exit still revokes.
+	b.handlePaneExit(newInst)
+	if got := b.PaneSnapshot("pane-1"); got.State != piBridgePlain {
+		t.Fatalf("current exit snapshot %+v, want plain", got)
 	}
 }

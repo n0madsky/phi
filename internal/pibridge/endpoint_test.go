@@ -1,22 +1,15 @@
+//go:build !windows
+
 package pibridge
 
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
 
-func skipOnWindows(t *testing.T) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("unix endpoint layout")
-	}
-}
-
 func TestNewEndpointLayoutAndCleanup(t *testing.T) {
-	skipOnWindows(t)
 	ep, err := NewEndpoint()
 	if err != nil {
 		t.Fatalf("NewEndpoint: %v", err)
@@ -70,7 +63,6 @@ func TestNewEndpointLayoutAndCleanup(t *testing.T) {
 }
 
 func TestEndpointsDiffer(t *testing.T) {
-	skipOnWindows(t)
 	a, err := NewEndpoint()
 	if err != nil {
 		t.Fatalf("first: %v", err)
@@ -87,7 +79,6 @@ func TestEndpointsDiffer(t *testing.T) {
 }
 
 func TestEndpointSpacesAndMultibyteRoot(t *testing.T) {
-	skipOnWindows(t)
 	// Use /tmp directly: os.TempDir() on macOS is a long /var/folders path
 	// that can exceed the 100-byte socket bound before the test starts.
 	base, err := os.MkdirTemp("/tmp", "phi-pi-")
@@ -115,7 +106,6 @@ func TestEndpointSpacesAndMultibyteRoot(t *testing.T) {
 }
 
 func TestEndpointLongRootFallsBack(t *testing.T) {
-	skipOnWindows(t)
 	// Overlong first root must be skipped, not truncated or used.
 	longRoot := filepath.Join(os.TempDir(), strings.Repeat("l", 120))
 	ep, err := NewEndpointWithRoots([]string{longRoot, os.TempDir()})
@@ -129,7 +119,6 @@ func TestEndpointLongRootFallsBack(t *testing.T) {
 }
 
 func TestEndpointSkipsRootTheClientWouldReject(t *testing.T) {
-	skipOnWindows(t)
 	// The client accepts a literal absolute path only. A root that
 	// forces a rejected shape must make the endpoint unavailable
 	// rather than publish a target the client refuses to dial.
@@ -147,7 +136,6 @@ func TestEndpointSkipsRootTheClientWouldReject(t *testing.T) {
 }
 
 func TestEndpointNoRootFits(t *testing.T) {
-	skipOnWindows(t)
 	longRoot := filepath.Join(os.TempDir(), strings.Repeat("l", 120))
 	if _, err := NewEndpointWithRoots([]string{longRoot}); err != ErrEndpointUnavailable {
 		t.Fatalf("err=%v, want ErrEndpointUnavailable", err)
@@ -158,7 +146,6 @@ func TestEndpointNoRootFits(t *testing.T) {
 }
 
 func TestEndpointCollisionDoesNotUnlink(t *testing.T) {
-	skipOnWindows(t)
 	old := randomSuffix
 	randomSuffix = func() (string, error) { return "fixedsuffix", nil }
 	defer func() { randomSuffix = old }()
@@ -183,7 +170,6 @@ func TestEndpointCollisionDoesNotUnlink(t *testing.T) {
 }
 
 func TestListenNeverUnlinksExistingSocket(t *testing.T) {
-	skipOnWindows(t)
 	ep, err := NewEndpoint()
 	if err != nil {
 		t.Fatalf("NewEndpoint: %v", err)
@@ -211,7 +197,6 @@ func TestListenNeverUnlinksExistingSocket(t *testing.T) {
 }
 
 func TestVerifyOwnedDirRejectsOpenMode(t *testing.T) {
-	skipOnWindows(t)
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o755); err != nil {
 		t.Fatalf("chmod: %v", err)
@@ -222,7 +207,6 @@ func TestVerifyOwnedDirRejectsOpenMode(t *testing.T) {
 }
 
 func TestEndpointIndependentOfCwd(t *testing.T) {
-	skipOnWindows(t)
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)

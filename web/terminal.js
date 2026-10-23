@@ -7410,6 +7410,7 @@ export class TabManager {
         tabInfo.piBridge = {
             state: control.state || 'plain',
             ...(control.reason ? { reason: control.reason } : {}),
+            ...(control.generation ? { generation: control.generation } : {}),
             ...(control.last_run ? { last_run: control.last_run } : {}),
             ...(control.last_outcome
                 ? { last_outcome: control.last_outcome }
@@ -7433,12 +7434,38 @@ export class TabManager {
         if (control.running !== undefined || control.last_run) {
             tabInfo._piBridgeLive = true;
         }
+        // Live state with no retained run establishes a zero baseline:
+        // the tab was already observing, so a later reconnect snapshot
+        // with run 1 must ring instead of silently baselining.
+        if (
+            !control.last_run &&
+            control.running !== undefined &&
+            !this._piBridgeHasBaseline(tabInfo)
+        ) {
+            tabInfo._piBridgeLastRun = '0';
+            if (
+                typeof control.generation === 'string' &&
+                /^\d+$/.test(control.generation)
+            ) {
+                tabInfo._piBridgeGeneration = control.generation;
+            }
+        }
         if (
             control.last_run &&
-            this._piBridgeRunIsNew(tabInfo, control.last_run)
+            this._piBridgeRunIsNew(
+                tabInfo,
+                control.last_run,
+                control.generation,
+            )
         ) {
             const hadBaseline = this._piBridgeHasBaseline(tabInfo);
             tabInfo._piBridgeLastRun = control.last_run;
+            if (
+                typeof control.generation === 'string' &&
+                /^\d+$/.test(control.generation)
+            ) {
+                tabInfo._piBridgeGeneration = control.generation;
+            }
             if (hadBaseline && control.last_outcome !== 'aborted') {
                 this._ringPiBridgeBell(tabInfo);
             }
@@ -7452,19 +7479,52 @@ export class TabManager {
         if (!control.run) return;
         // Settled frames only arrive post-hello: proof of liveness.
         tabInfo._piBridgeLive = true;
-        if (!this._piBridgeRunIsNew(tabInfo, control.run)) return;
+        if (
+            !this._piBridgeRunIsNew(
+                tabInfo,
+                control.run,
+                control.generation,
+            )
+        )
+            return;
         tabInfo._piBridgeLastRun = control.run;
+        if (
+            typeof control.generation === 'string' &&
+            /^\d+$/.test(control.generation)
+        ) {
+            tabInfo._piBridgeGeneration = control.generation;
+        }
         // A settlement ends the run, whatever the outcome.
         if (tabInfo.piBridge) tabInfo.piBridge.running = false;
         if (control.outcome === 'aborted') return;
         this._ringPiBridgeBell(tabInfo);
     }
 
-    // Runs are u64 decimal strings; compare numerically, defensively.
-    _piBridgeRunIsNew(tabInfo, run) {
+    // Runs and generations are u64 decimal strings; compare numerically,
+    // defensively. Ordering is generation-major: any run in a newer
+    // generation is new, and any run in an older generation is stale.
+    // Frames without a generation fall back to the legacy run-only
+    // comparison.
+    _piBridgeRunIsNew(tabInfo, run, generation) {
         if (typeof run !== 'string' || !/^\d+$/.test(run)) return false;
         const seen = tabInfo._piBridgeLastRun;
         if (typeof seen !== 'string' || !/^\d+$/.test(seen)) return true;
+        const seenGen = tabInfo._piBridgeGeneration;
+        if (
+            typeof generation === 'string' &&
+            /^\d+$/.test(generation) &&
+            typeof seenGen === 'string' &&
+            /^\d+$/.test(seenGen)
+        ) {
+            try {
+                const gen = BigInt(generation);
+                const prev = BigInt(seenGen);
+                if (gen > prev) return true;
+                if (gen < prev) return false;
+            } catch (_e) {
+                // Fall through to the run comparison.
+            }
+        }
         try {
             return BigInt(run) > BigInt(seen);
         } catch (_e) {
@@ -7800,6 +7860,7 @@ export class TabManager {
                 // A restart provisions a fresh lease; drop bridge state.
                 tabInfo.piBridge = data.pi_bridge;
                 tabInfo._piBridgeLastRun = undefined;
+                tabInfo._piBridgeGeneration = undefined;
                 tabInfo._piBridgeLive = undefined;
 
                 // Update DOM element references to synchronise new IDs

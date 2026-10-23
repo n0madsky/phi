@@ -173,6 +173,9 @@ func StartPTYReadLoop(inst *pty.PTYInstance, hub *Hub) {
 	if done == nil {
 		return
 	}
+	// Register the owner before the goroutine starts: a same-ID retry
+	// must win over a delayed old exit that is still draining.
+	hub.notePaneOwner(inst)
 	logger := componentLogger().With("pane", inst.ID)
 	go func() {
 		defer close(done)
@@ -200,13 +203,11 @@ func StartPTYReadLoop(inst *pty.PTYInstance, hub *Hub) {
 				break
 			}
 		}
-		// Reap process exit status and broadcast exit event
+		// Reap process exit status and run the guarded exit: a stale old
+		// loop after a same-ID retry skips broadcast, close, and hook.
 		<-inst.Pty.Closed
 		code := inst.Pty.ExitCode()
-		payload := []byte(fmt.Sprintf(`{"code":%d}`, code))
-		hub.Broadcast(inst.ID, 0x04, payload)
-		hub.ClosePane(inst.ID)
-		hub.notifyPaneExit(inst.ID, code)
+		hub.exitPaneForOwner(inst, code)
 	}()
 }
 

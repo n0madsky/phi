@@ -442,3 +442,130 @@ func TestConcurrentClientsIndependent(t *testing.T) {
 		_ = c.stream.CloseSend()
 	}
 }
+
+// Offline settlements merged from a Hello journal must publish exactly
+// once through the settlement callback, with the Hello generation.
+func TestHelloOfflineSettlementPublishesOnce(t *testing.T) {
+	s, sock, cleanup := testServer(t)
+	defer cleanup()
+	type settlement struct {
+		gen     uint64
+		runID   uint64
+		outcome pibridgepb.RunOutcome
+	}
+	var got []settlement
+	s.SetOnSettled(func(_, _ string, gen, runID uint64, outcome pibridgepb.RunOutcome) {
+		got = append(got, settlement{gen: gen, runID: runID, outcome: outcome})
+	})
+	proc, token, err := s.RegisterPending("pane-offline")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	s.Complete(proc)
+	first, cancelFirst := openStream(t, sock, "pane-offline", proc, token)
+	defer cancelFirst()
+	if err := first.Send(testHello("pane-offline", proc, 1, CapabilityLifecycle)); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	recvAccepted(t, first)
+	if err := first.Send(&pibridgepb.PiToPhi{
+		PaneId: "pane-offline", ProcessId: proc, RuntimeGeneration: 1,
+		Payload: &pibridgepb.PiToPhi_AgentStarted{AgentStarted: &pibridgepb.AgentStarted{EventSequence: 1, RunId: 1}},
+	}); err != nil {
+		t.Fatalf("send started: %v", err)
+	}
+	// Reconnect carries one offline settlement: duplicate start ignored,
+	// settlement merges and publishes once.
+	second, cancelSecond := openStream(t, sock, "pane-offline", proc, token)
+	defer cancelSecond()
+	hello := testHello("pane-offline", proc, 1, CapabilityLifecycle)
+	hello.GetHello().GetCurrentState().Journal = []*pibridgepb.LifecycleRecord{
+		{EventSequence: 1, RunId: 1},
+		{EventSequence: 2, RunId: 1, Settled: true, Outcome: pibridgepb.RunOutcome_RUN_OUTCOME_COMPLETED},
+	}
+	if err := second.Send(hello); err != nil {
+		t.Fatalf("reconnect send: %v", err)
+	}
+	recvAccepted(t, second)
+	if len(got) != 1 || got[0].gen != 1 || got[0].runID != 1 || got[0].outcome != pibridgepb.RunOutcome_RUN_OUTCOME_COMPLETED {
+		t.Fatalf("settlements %+v, want one gen1 run1 completed", got)
+	}
+	// A second Hello with the same journal is duplicate suppression:
+	// no second publish.
+	third, cancelThird := openStream(t, sock, "pane-offline", proc, token)
+	defer cancelThird()
+	if err := third.Send(hello); err != nil {
+		t.Fatalf("duplicate hello send: %v", err)
+	}
+	recvAccepted(t, third)
+	if len(got) != 1 {
+		t.Fatalf("settlements %+v, want still one after duplicate hello", got)
+	}
+}
+
+// A replaced stream cannot append to the new runtime's journal or
+// overwrite its state, and its delayed callbacks carry the old
+// generation for host fencing.
+func TestStalePeerCannotOverwriteReplacement(t *testing.T) {
+	s := NewServer()
+	proc, _, err := s.RegisterPending("pane-fence")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	s.Complete(proc)
+	l, ok := s.reg.lookupByProcess(proc)
+	if !ok {
+		t.Fatal("lease missing")
+	}
+	// Install generation 1, then replace with generation 2.
+	oldPeer := newPeer(1, "sess", nil)
+	l.mu.Lock()
+	l.maxGen, l.runtimeID, l.sessionID = 1, "rt1", "sess"
+	l.peer = oldPeer
+	l.mu.Unlock()
+	newPeerObj := newPeer(2, "sess2", nil)
+	l.mu.Lock()
+	l.maxGen, l.runtimeID, l.sessionID = 2, "rt2", "sess2"
+	l.jrn.reset()
+	l.peer = newPeerObj
+	l.lastState = &pibridgepb.StateSnapshot{State: pibridgepb.LogicalState_LOGICAL_STATE_IDLE, SessionId: "sess2"}
+	l.mu.Unlock()
+	var settled int
+	s.SetOnSettled(func(_, _ string, _, _ uint64, _ pibridgepb.RunOutcome) { settled++ })
+	// Old peer's settled edge must be ignored, not appended.
+	if err := s.handleMessage(l, oldPeer, &pibridgepb.PiToPhi{
+		PaneId: "pane-fence", ProcessId: proc, RuntimeGeneration: 1,
+		Payload: &pibridgepb.PiToPhi_AgentSettled{AgentSettled: &pibridgepb.AgentSettled{EventSequence: 9, RunId: 9, Outcome: pibridgepb.RunOutcome_RUN_OUTCOME_COMPLETED}},
+	}); err != nil {
+		t.Fatalf("stale settled: %v", err)
+	}
+	if settled != 0 {
+		t.Fatal("stale peer settlement fired")
+	}
+	if _, _, first, last := l.jrn.snapshot(); first != 0 || last != 0 {
+		t.Fatalf("journal [%d,%d], want empty after stale write", first, last)
+	}
+	// Old peer's snapshot must not overwrite the new runtime's state.
+	if err := s.handleMessage(l, oldPeer, &pibridgepb.PiToPhi{
+		PaneId: "pane-fence", ProcessId: proc, RuntimeGeneration: 1,
+		Payload: &pibridgepb.PiToPhi_StateSnapshot{StateSnapshot: &pibridgepb.StateSnapshot{State: pibridgepb.LogicalState_LOGICAL_STATE_RUNNING, SessionId: "sess"}},
+	}); err != nil {
+		t.Fatalf("stale snapshot: %v", err)
+	}
+	l.mu.Lock()
+	state := l.lastState.GetState()
+	l.mu.Unlock()
+	if state != pibridgepb.LogicalState_LOGICAL_STATE_IDLE {
+		t.Fatalf("last state %v, want IDLE after stale snapshot", state)
+	}
+	// Current peer still writes.
+	if err := s.handleMessage(l, newPeerObj, &pibridgepb.PiToPhi{
+		PaneId: "pane-fence", ProcessId: proc, RuntimeGeneration: 2,
+		Payload: &pibridgepb.PiToPhi_AgentSettled{AgentSettled: &pibridgepb.AgentSettled{EventSequence: 1, RunId: 1, Outcome: pibridgepb.RunOutcome_RUN_OUTCOME_COMPLETED}},
+	}); err != nil {
+		t.Fatalf("live settled: %v", err)
+	}
+	if settled != 1 {
+		t.Fatalf("live settlements %d, want 1", settled)
+	}
+}

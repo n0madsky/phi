@@ -218,12 +218,94 @@ func TestOnPaneExitHookDispatches(t *testing.T) {
 	hub := NewHub(0)
 	var got string
 	var code int
-	hub.SetOnPaneExit(func(paneID string, c int) {
-		got, code = paneID, c
+	hub.SetOnPaneExit(func(inst *pty.PTYInstance, c int) {
+		got, code = inst.ID, c
 	})
-	hub.notifyPaneExit("pane-9", 3)
+	inst := &pty.PTYInstance{ID: "pane-9"}
+	hub.notifyPaneExit(inst, 3)
 	if got != "pane-9" || code != 3 {
 		t.Fatalf("hook got (%q,%d)", got, code)
 	}
-	(&Hub{}).notifyPaneExit("pane-9", 0) // nil hook is a no-op
+	(&Hub{}).notifyPaneExit(inst, 0) // nil hook is a no-op
+}
+
+// A delayed old read-loop exit after a same-ID retry must not broadcast
+// a false exit, close the replacement's clients/history, or fire the
+// lease hook. The current exit still cleans up fully.
+func TestStaleExitPreservesReplacementPane(t *testing.T) {
+	hub := NewHub(0)
+	var exits []*pty.PTYInstance
+	hub.SetOnPaneExit(func(inst *pty.PTYInstance, c int) {
+		exits = append(exits, inst)
+	})
+	oldInst := &pty.PTYInstance{ID: "pane-1"}
+	newInst := &pty.PTYInstance{ID: "pane-1"}
+	hub.notePaneOwner(oldInst)
+	oldClient := &Client{Send: make(chan []byte, 8)}
+	hub.Register("pane-1", oldClient)
+	if err := hub.Ingest("pane-1", []byte("old output")); err != nil {
+		t.Fatalf("ingest old: %v", err)
+	}
+	drainFrames(oldClient.Send)
+	// Retry reuses the pane ID with a new instance.
+	hub.notePaneOwner(newInst)
+	newClient := &Client{Send: make(chan []byte, 8)}
+	hub.Register("pane-1", newClient)
+	if err := hub.Ingest("pane-1", []byte("new output")); err != nil {
+		t.Fatalf("ingest new: %v", err)
+	}
+	drainFrames(oldClient.Send)
+	drainFrames(newClient.Send)
+	if hub.exitPaneForOwner(oldInst, 1) {
+		t.Fatal("stale exit ran cleanup")
+	}
+	if _, ok := hub.LookupPane("pane-1"); !ok {
+		t.Fatal("stale exit deleted replacement pane")
+	}
+	select {
+	case frame := <-newClient.Send:
+		t.Fatalf("stale exit sent frame to new client: %v", frame)
+	default:
+	}
+	// The replacement pane still ingests and delivers: clients open.
+	if err := hub.Ingest("pane-1", []byte("after stale")); err != nil {
+		t.Fatalf("ingest after stale: %v", err)
+	}
+	select {
+	case frame := <-newClient.Send:
+		if len(frame) == 0 || frame[0] != 0x01 {
+			t.Fatalf("expected output frame, got %v", frame)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("new client missed output after stale exit")
+	}
+	drainFrames(oldClient.Send)
+	if len(exits) != 0 {
+		t.Fatalf("stale exit fired hook %d times, lease would revoke", len(exits))
+	}
+	if !hub.exitPaneForOwner(newInst, 0) {
+		t.Fatal("current exit skipped cleanup")
+	}
+	if _, ok := hub.LookupPane("pane-1"); ok {
+		t.Fatal("current exit did not delete pane")
+	}
+	foundExit := false
+	for {
+		frame, ok := <-newClient.Send
+		if !ok {
+			break
+		}
+		if len(frame) > 0 && frame[0] == 0x04 {
+			foundExit = true
+			if !strings.Contains(string(frame[1:]), `"code":0`) {
+				t.Fatalf("exit payload %s", frame[1:])
+			}
+		}
+	}
+	if !foundExit {
+		t.Fatal("current exit did not broadcast to new client")
+	}
+	if len(exits) != 1 || exits[0] != newInst {
+		t.Fatalf("exits %+v, want one new-inst hook", exits)
+	}
 }
